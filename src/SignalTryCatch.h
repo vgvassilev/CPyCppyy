@@ -28,6 +28,10 @@ struct ExceptionContext_t {
 };
 }
 
+// FIXME: This is a dummy, replace with cling equivalent of gException
+static CppyyLegacy::ExceptionContext_t DummyException;
+static CppyyLegacy::ExceptionContext_t *gException = &DummyException;
+
 #ifdef NEED_SIGJMP
 # define CLING_EXCEPTION_SETJMP(buf) sigsetjmp(buf,1)
 #else

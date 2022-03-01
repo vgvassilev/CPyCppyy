@@ -155,6 +155,9 @@ std::string CPyCppyy::TypeManip::template_base(const std::string& cppname)
 //----------------------------------------------------------------------------
 std::string CPyCppyy::TypeManip::compound(const std::string& name)
 {
+// FIXME: temporary fix for translation unit decl being passed in 
+// CreateExecutor from InitExecutor_ (run test10_object_identity), remove later
+    if (name.empty()) return "";
 // Break down the compound of a fully qualified type name.
     std::string cleanName = remove_const(name);
     auto idx = find_qualifier_index(cleanName);
@@ -170,6 +173,9 @@ std::string CPyCppyy::TypeManip::compound(const std::string& name)
         scpd << cpd.substr(0, cpd.find('[')) << "[]";
         return scpd.str();
     }
+
+    // XXX: remove this hack
+    if (!cpd.empty() && cpd[0] == ' ') return cpd.substr(1, cpd.length() - 1);
 
     return cpd;
 }

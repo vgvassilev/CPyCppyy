@@ -1596,12 +1596,12 @@ bool CPyCppyy::Pythonize(PyObject* pyclass, const std::string& name)
            !((PyTypeObject*)pyclass)->tp_iter) {
         if (HasAttrDirect(pyclass, PyStrings::gBegin) && HasAttrDirect(pyclass, PyStrings::gEnd)) {
         // obtain the name of the return type
-            const auto& v = Cppyy::GetMethodIndicesFromName(klass->fCppType, "begin");
-            if (!v.empty()) {
+            const auto& methods = Cppyy::GetMethodsFromName(klass->fCppType, "begin");
+            if (!methods.empty()) {
             // check return type; if not explicitly an iterator, add it to the "known" return
             // types to add the "next" method on use
-                Cppyy::TCppMethod_t meth = Cppyy::GetMethod(klass->fCppType, v[0]);
-                const std::string& resname = Cppyy::GetMethodResultType(meth);
+                Cppyy::TCppMethod_t meth = methods[0];
+                const std::string& resname = Cppyy::GetMethodReturnTypeAsString(meth);
                 bool isIterator = gIteratorTypes.find(resname) != gIteratorTypes.end();
                 if (!isIterator && Cppyy::GetScope(resname)) {
                     if (resname.find("iterator") == std::string::npos)
@@ -1639,7 +1639,7 @@ bool CPyCppyy::Pythonize(PyObject* pyclass, const std::string& name)
 // comparisons to None; if no operator is available, a hook is installed for lazy
 // lookups in the global and/or class namespace
     if (HasAttrDirect(pyclass, PyStrings::gEq, true) && \
-            Cppyy::GetMethodIndicesFromName(klass->fCppType, "__eq__").empty()) {
+            Cppyy::GetMethodsFromName(klass->fCppType, "__eq__").empty()) {
         PyObject* cppol = PyObject_GetAttr(pyclass, PyStrings::gEq);
         if (!klass->fOperators) klass->fOperators = new Utility::PyOperators();
         klass->fOperators->fEq = cppol;
@@ -1656,7 +1656,7 @@ bool CPyCppyy::Pythonize(PyObject* pyclass, const std::string& name)
     }
 
     if (HasAttrDirect(pyclass, PyStrings::gNe, true) && \
-            Cppyy::GetMethodIndicesFromName(klass->fCppType, "__ne__").empty()) {
+            Cppyy::GetMethodsFromName(klass->fCppType, "__ne__").empty()) {
         PyObject* cppol = PyObject_GetAttr(pyclass, PyStrings::gNe);
         if (!klass->fOperators) klass->fOperators = new Utility::PyOperators();
         klass->fOperators->fNe = cppol;
@@ -1686,8 +1686,8 @@ bool CPyCppyy::Pythonize(PyObject* pyclass, const std::string& name)
     if (Cppyy::IsAggregate(((CPPClass*)pyclass)->fCppType) && name.compare(0, 5, "std::", 5) != 0) {
     // create a pseudo-constructor to allow initializer-style object creation
         Cppyy::TCppType_t kls = ((CPPClass*)pyclass)->fCppType;
-        Cppyy::TCppIndex_t ndata = Cppyy::GetNumDatamembers(kls);
-        if (ndata) {
+        std::vector<Cppyy::TCppScope_t> datamems = Cppyy::GetDatamembers(kls);
+        if (!datamems.empty()) {
             std::string rname = name;
             TypeManip::cppscope_to_legalname(rname);
 
@@ -1696,13 +1696,14 @@ bool CPyCppyy::Pythonize(PyObject* pyclass, const std::string& name)
                     << "void init_" << rname << "(" << name << "*& self";
             bool codegen_ok = true;
             std::vector<std::string> arg_types, arg_names, arg_defaults;
+            const int ndata = datamems.size();
             arg_types.reserve(ndata); arg_names.reserve(ndata); arg_defaults.reserve(ndata);
-            for (Cppyy::TCppIndex_t i = 0; i < ndata; ++i) {
-                if (Cppyy::IsStaticData(kls, i) || !Cppyy::IsPublicData(kls, i))
+            for (auto data : datamems) {
+                if (Cppyy::IsStaticDatamember(data) || !Cppyy::IsPublicData(data))
                     continue;
 
-                const std::string& txt = Cppyy::GetDatamemberType(kls, i);
-                const std::string& res = Cppyy::IsEnum(txt) ? txt : Cppyy::ResolveName(txt);
+                std::string txt = Cppyy::GetDatamemberTypeAsString(data);
+                const std::string& res = Cppyy::IsEnumType(Cppyy::GetDatamemberType(data)) ? txt : Cppyy::ResolveName(txt);
                 const std::string& cpd = TypeManip::compound(res);
                 std::string res_clean = TypeManip::clean_type(res, false, true);
 
@@ -1712,7 +1713,7 @@ bool CPyCppyy::Pythonize(PyObject* pyclass, const std::string& name)
                 if (res.rfind(']') == std::string::npos && res.rfind(')') == std::string::npos) {
                     if (!cpd.empty()) arg_types.push_back(res_clean+cpd);
                     else arg_types.push_back("const "+res_clean+"&");
-                    arg_names.push_back(Cppyy::GetDatamemberName(kls, i));
+                    arg_names.push_back(Cppyy::GetFinalName(data));
                     if ((!cpd.empty() && cpd.back() == '*') || Cppyy::IsBuiltin(res_clean))
                         arg_defaults.push_back("0");
                     else {
@@ -1740,10 +1741,10 @@ bool CPyCppyy::Pythonize(PyObject* pyclass, const std::string& name)
 
                 if (Cppyy::Compile(initdef.str(), true /* silent */)) {
                     Cppyy::TCppScope_t cis = Cppyy::GetScope("__cppyy_internal");
-                    const auto& mix = Cppyy::GetMethodIndicesFromName(cis, "init_"+rname);
-                    if (mix.size()) {
+                    const auto& methods = Cppyy::GetMethodsFromName(cis, "init_" + rname);
+                    if (methods.size()) {
                         if (!Utility::AddToClass(pyclass, "__init__",
-                                new CPPFunction(cis, Cppyy::GetMethod(cis, mix[0]))))
+                                new CPPFunction(cis, methods[0])))
                             PyErr_Clear();
                     }
                 }

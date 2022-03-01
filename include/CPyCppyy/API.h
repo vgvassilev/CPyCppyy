@@ -29,11 +29,11 @@
 
 // Cppyy types
 namespace Cppyy {
-    typedef size_t      TCppScope_t;
+    typedef void*       TCppScope_t;
     typedef TCppScope_t TCppType_t;
     typedef void*       TCppEnum_t;
     typedef void*       TCppObject_t;
-    typedef intptr_t    TCppMethod_t;
+    typedef void*       TCppMethod_t;
 
     typedef size_t      TCppIndex_t;
     typedef void*       TCppFuncAddr_t;
@@ -124,6 +124,7 @@ public:
 
 // create a converter based on its full type name and dimensions
 CPYCPPYY_EXTERN Converter* CreateConverter(const std::string& name, cdims_t = 0);
+CPYCPPYY_EXTERN Converter* CreateConverter(Cppyy::TCppType_t type, cdims_t = 0);
 
 // delete a previously created converter
 CPYCPPYY_EXTERN void DestroyConverter(Converter* p);
@@ -151,6 +152,7 @@ public:
 
 // create an executor based on its full type name
 CPYCPPYY_EXTERN Executor* CreateExecutor(const std::string& name, cdims_t = 0);
+CPYCPPYY_EXTERN Executor* CreateExecutor(Cppyy::TCppType_t type, cdims_t = 0);
 
 // delete a previously created executor
 CPYCPPYY_EXTERN void DestroyConverter(Converter* p);

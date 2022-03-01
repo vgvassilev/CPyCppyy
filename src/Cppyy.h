@@ -39,11 +39,11 @@ typedef long double PY_LONG_DOUBLE;
 
 namespace Cppyy {
 
-    typedef size_t      TCppScope_t;
+    typedef void*       TCppScope_t;
     typedef TCppScope_t TCppType_t;
     typedef void*       TCppEnum_t;
     typedef void*       TCppObject_t;
-    typedef intptr_t    TCppMethod_t;
+    typedef void*       TCppMethod_t;
 
     typedef size_t      TCppIndex_t;
     typedef void*       TCppFuncAddr_t;
@@ -58,9 +58,28 @@ namespace Cppyy {
     CPPYY_IMPORT
     std::string ResolveName(const std::string& cppitem_name);
     CPPYY_IMPORT
-    std::string ResolveEnum(const std::string& enum_type);
+    TCppType_t ResolveType(TCppType_t type);
     CPPYY_IMPORT
-    TCppScope_t GetScope(const std::string& scope_name);
+    TCppType_t GetRealType(TCppType_t type);
+    CPPYY_IMPORT
+    std::string ResolveEnum(TCppScope_t enum_type);
+    CPPYY_IMPORT
+    TCppScope_t GetScope(const std::string& name, TCppScope_t parent_scope = 0);
+    CPPYY_IMPORT
+    TCppScope_t GetFullScope(const std::string& scope_name);
+    CPPYY_IMPORT
+    TCppScope_t GetTypeScope(TCppScope_t klass);
+    CPPYY_IMPORT
+    TCppScope_t GetNamed(const std::string& scope_name,
+                         TCppScope_t parent_scope = 0);
+    CPPYY_IMPORT
+    TCppScope_t GetParentScope(TCppScope_t scope);
+    CPPYY_IMPORT
+    TCppScope_t GetScopeFromType(TCppScope_t type);
+    CPPYY_IMPORT
+    TCppType_t  GetTypeFromScope(TCppScope_t klass);
+    CPPYY_IMPORT
+    TCppScope_t GetGlobalScope();
     CPPYY_IMPORT
     TCppType_t  GetActualClass(TCppType_t klass, TCppObject_t obj);
     CPPYY_IMPORT
@@ -71,7 +90,7 @@ namespace Cppyy {
     CPPYY_IMPORT
     bool        IsBuiltin(const std::string& type_name);
     CPPYY_IMPORT
-    bool        IsComplete(const std::string& type_name);
+    bool        IsComplete(TCppScope_t scope);
 
     CPPYY_IMPORT
     TCppScope_t gGlobalScope;      // for fast access
@@ -112,7 +131,7 @@ namespace Cppyy {
     CPPYY_IMPORT
     char*         CallS(TCppMethod_t method, TCppObject_t self, size_t nargs, void* args, size_t* length);
     CPPYY_IMPORT
-    TCppObject_t  CallConstructor(TCppMethod_t method, TCppType_t type, size_t nargs, void* args);
+    TCppObject_t  CallConstructor(TCppMethod_t method, TCppScope_t klass, size_t nargs, void* args);
     CPPYY_IMPORT
     void          CallDestructor(TCppType_t type, TCppObject_t self);
     CPPYY_IMPORT
@@ -135,15 +154,23 @@ namespace Cppyy {
     CPPYY_IMPORT
     bool IsNamespace(TCppScope_t scope);
     CPPYY_IMPORT
-    bool IsTemplate(const std::string& template_name);
+    bool IsClass(TCppScope_t scope);
+    CPPYY_IMPORT
+    bool IsTemplate(TCppScope_t handle);
+    CPPYY_IMPORT
+    bool IsTemplateInstantiation(TCppScope_t handle);
     CPPYY_IMPORT
     bool IsAbstract(TCppType_t type);
     CPPYY_IMPORT
-    bool IsEnum(const std::string& type_name);
+    bool IsEnum(TCppScope_t scope);
+    CPPYY_IMPORT
+    bool IsEnumType(TCppType_t type);
     CPPYY_IMPORT
     bool IsAggregate(TCppType_t type);
     CPPYY_IMPORT
-    bool IsDefaultConstructable(TCppType_t type);
+    bool IsDefaultConstructable(TCppScope_t scope);
+    CPPYY_IMPORT
+    bool IsVariable(TCppScope_t scope);
 
     CPPYY_IMPORT
     void GetAllCppNames(TCppScope_t scope, std::set<std::string>& cppnames);
@@ -166,7 +193,9 @@ namespace Cppyy {
     CPPYY_IMPORT
     std::string GetBaseName(TCppType_t type, TCppIndex_t ibase);
     CPPYY_IMPORT
-    bool        IsSubtype(TCppType_t derived, TCppType_t base);
+    TCppScope_t GetBaseScope(TCppType_t type, TCppIndex_t ibase);
+    CPPYY_IMPORT
+    bool        IsSubclass(TCppType_t derived, TCppType_t base);
     CPPYY_IMPORT
     bool        IsSmartPtr(TCppType_t type);
     CPPYY_IMPORT
@@ -184,9 +213,9 @@ namespace Cppyy {
 
 // method/function reflection information ------------------------------------
     CPPYY_IMPORT
-    TCppIndex_t GetNumMethods(TCppScope_t scope, bool accept_namespace = false);
+    std::vector<TCppMethod_t> GetClassMethods(TCppScope_t scope);
     CPPYY_IMPORT
-    std::vector<TCppIndex_t> GetMethodIndicesFromName(TCppScope_t scope, const std::string& name);
+    std::vector<TCppScope_t> GetMethodsFromName(TCppScope_t scope, const std::string& name);
 
     CPPYY_IMPORT
     TCppMethod_t GetMethod(TCppScope_t scope, TCppIndex_t imeth);
@@ -198,7 +227,9 @@ namespace Cppyy {
     CPPYY_IMPORT
     std::string GetMethodMangledName(TCppMethod_t);
     CPPYY_IMPORT
-    std::string GetMethodResultType(TCppMethod_t);
+    TCppType_t GetMethodReturnType(TCppMethod_t);
+    CPPYY_IMPORT
+    std::string GetMethodReturnTypeAsString(TCppMethod_t);
     CPPYY_IMPORT
     TCppIndex_t GetMethodNumArgs(TCppMethod_t);
     CPPYY_IMPORT
@@ -206,13 +237,15 @@ namespace Cppyy {
     CPPYY_IMPORT
     std::string GetMethodArgName(TCppMethod_t, TCppIndex_t iarg);
     CPPYY_IMPORT
-    std::string GetMethodArgType(TCppMethod_t, TCppIndex_t iarg);
+    TCppType_t GetMethodArgType(TCppMethod_t, TCppIndex_t iarg);
+    CPPYY_IMPORT
+    std::string GetMethodArgTypeAsString(TCppMethod_t, TCppIndex_t iarg);
     CPPYY_IMPORT
     std::string GetMethodArgDefault(TCppMethod_t, TCppIndex_t iarg);
     CPPYY_IMPORT
-    std::string GetMethodSignature(TCppMethod_t, bool show_formalargs, TCppIndex_t maxargs = (TCppIndex_t)-1);
+    std::string GetMethodSignature(TCppMethod_t, bool show_formal_args, TCppIndex_t max_args = (TCppIndex_t)-1);
     CPPYY_IMPORT
-    std::string GetMethodPrototype(TCppScope_t scope, TCppMethod_t, bool show_formalargs);
+    std::string GetMethodPrototype(TCppMethod_t, bool show_formal_args);
     CPPYY_IMPORT
     bool        IsConstMethod(TCppMethod_t);
 
@@ -225,7 +258,7 @@ namespace Cppyy {
     CPPYY_IMPORT
     bool        ExistsMethodTemplate(TCppScope_t scope, const std::string& name);
     CPPYY_IMPORT
-    bool        IsMethodTemplate(TCppScope_t scope, TCppIndex_t imeth);
+    bool        IsTemplatedMethod(TCppMethod_t method);
     CPPYY_IMPORT
     TCppMethod_t GetMethodTemplate(
         TCppScope_t scope, const std::string& name, const std::string& proto);
@@ -248,40 +281,55 @@ namespace Cppyy {
 
 // data member reflection information ----------------------------------------
     CPPYY_IMPORT
-    TCppIndex_t GetNumDatamembers(TCppScope_t scope, bool accept_namespace = false);
+    std::vector<TCppScope_t> GetDatamembers(TCppScope_t scope);
     CPPYY_IMPORT
     std::string GetDatamemberName(TCppScope_t scope, TCppIndex_t idata);
     CPPYY_IMPORT
-    std::string GetDatamemberType(TCppScope_t scope, TCppIndex_t idata);
+    TCppType_t  GetDatamemberType(TCppScope_t var);
     CPPYY_IMPORT
-    intptr_t    GetDatamemberOffset(TCppScope_t scope, TCppIndex_t idata);
+    std::string GetTypeAsString(TCppType_t type);
     CPPYY_IMPORT
-    TCppIndex_t GetDatamemberIndex(TCppScope_t scope, const std::string& name);
+    bool IsClassType(TCppType_t type);
+    CPPYY_IMPORT
+    TCppType_t  GetType(const std::string& name);
+    CPPYY_IMPORT
+    TCppType_t  GetComplexType(const std::string& element_type);
+    CPPYY_IMPORT
+    std::string GetDatamemberTypeAsString(TCppScope_t var);
+    CPPYY_IMPORT
+    intptr_t    GetDatamemberOffset(TCppScope_t var);
+    CPPYY_IMPORT
+    bool        CheckDatamember(TCppScope_t scope, const std::string& name);
 
 // data member properties ----------------------------------------------------
     CPPYY_IMPORT
-    bool IsPublicData(TCppScope_t scope, TCppIndex_t idata);
+    bool IsPublicData(TCppScope_t data);
     CPPYY_IMPORT
-    bool IsProtectedData(TCppScope_t scope, TCppIndex_t idata);
+    bool IsProtectedData(TCppScope_t var);
     CPPYY_IMPORT
-    bool IsStaticData(TCppScope_t scope, TCppIndex_t idata);
+    bool IsStaticDatamember(TCppScope_t var);
     CPPYY_IMPORT
-    bool IsConstData(TCppScope_t scope, TCppIndex_t idata);
+    bool IsConstVar(TCppScope_t var);
     CPPYY_IMPORT
     bool IsEnumData(TCppScope_t scope, TCppIndex_t idata);
     CPPYY_IMPORT
-    int  GetDimensionSize(TCppScope_t scope, TCppIndex_t idata, int dimension);
+    std::vector<long int> GetDimensions(TCppType_t type);
 
 // enum properties -----------------------------------------------------------
+    // CPPYY_IMPORT
+    // TCppEnum_t  GetEnum(TCppScope_t scope, const std::string& enum_name);
     CPPYY_IMPORT
-    TCppEnum_t  GetEnum(TCppScope_t scope, const std::string& enum_name);
+    TCppScope_t GetEnumScope(TCppScope_t);
     CPPYY_IMPORT
-    TCppIndex_t GetNumEnumData(TCppEnum_t);
+    std::vector<TCppScope_t> GetEnumConstants(TCppScope_t scope);
     CPPYY_IMPORT
-    std::string GetEnumDataName(TCppEnum_t, TCppIndex_t idata);
+    long long   GetEnumDataValue(TCppScope_t scope);
     CPPYY_IMPORT
-    long long   GetEnumDataValue(TCppEnum_t, TCppIndex_t idata);
+    TCppScope_t InstantiateTemplateClass(
+        TCppScope_t tmpl, TCppType_t* types, size_t types_size);
 
+    CPPYY_IMPORT
+    TCppScope_t DumpScope(TCppScope_t scope);
 } // namespace Cppyy
 
 #endif // !CPYCPPYY_CPPYY_H
