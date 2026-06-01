@@ -2,14 +2,196 @@
 #include "CPyCppyy.h"
 #include "Dispatcher.h"
 #include "CPPScope.h"
+#include "CppyyDispatcher.h"
 #include "PyStrings.h"
+#include "PyVirtualHandler.h"
 #include "ProxyWrappers.h"
 #include "TypeManip.h"
 #include "Utility.h"
 
 // Standard
+#include <chrono>
 #include <set>
 #include <sstream>
+#include <vector>
+
+
+//----------------------------------------------------------------------------
+namespace CPyCppyy { namespace VTableProxyDetect {
+// Counters for visibility into how often the fast-path predicate would
+// apply across a real cppyy workload. Exposed to Python via libcppyy's
+// `_vtableproxy_stats` entry; reset via `_vtableproxy_stats_reset`.
+struct Stats {
+    unsigned long total = 0;          // every InsertDispatcher call
+    unsigned long eligible = 0;        // matched thunk table (int(int) only)
+    unsigned long miss_multi_base = 0;
+    unsigned long miss_bad_base = 0;
+    unsigned long miss_no_int_int = 0;
+    unsigned long miss_no_override = 0;
+    // top miss-signature histogram (small-N, oldest-evicted)
+    static constexpr int kSigLog = 32;
+    std::string sigs[kSigLog];
+    int sig_head = 0;
+};
+static Stats g_stats;
+}}  // namespace CPyCppyy::VTableProxyDetect
+
+bool CPyCppyy::TryInsertVTableProxyDispatcher(CPPScope* klass, PyObject* bases, PyObject* dct)
+{
+// Detect the simple-case shape the prebuilt VTableProxy thunk table
+// supports today: a single C++ base whose only user virtual method is
+// `int frob(int)`, with `frob` overridden in `dct`.
+//
+// FIXME: thunk table is single-entry; expand the predicate when the
+// signature table grows (TableGen-driven generation pending).
+
+    auto& S = VTableProxyDetect::g_stats;
+    auto t_start = std::chrono::steady_clock::now();
+    ++S.total;
+
+    if (!PyTuple_Check(bases) || PyTuple_GET_SIZE(bases) != 1) {
+        ++S.miss_multi_base;
+        return false;
+    }
+    if (!CPPScope_Check(PyTuple_GET_ITEM(bases, 0))) {
+        ++S.miss_bad_base;
+        return false;
+    }
+
+    Cppyy::TCppType_t basetype = ((CPPScope*)PyTuple_GET_ITEM(bases, 0))->fCppType;
+    if (!basetype || Cppyy::IsNamespace(basetype)) {
+        ++S.miss_bad_base;
+        return false;
+    }
+    // Abstract bases can't be Construct()ed directly via the wrapped C++
+    // ctor (no non-pure subclass to instantiate). The slow path's
+    // auto-generated dispatcher class provides the concrete overrides;
+    // the fast path doesn't have that, so we'd run into a pure-virtual
+    // call. Defer to the slow path.
+    if (Cppyy::IsAbstract(basetype)) {
+        ++S.miss_bad_base;
+        return false;
+    }
+
+    std::vector<Cppyy::TCppMethod_t> methods;
+    Cppyy::GetClassMethods(basetype, methods);
+
+    // The fast path is applicable only when EVERY Python override
+    // maps to a thunk-table-supported base method. If any override falls
+    // outside the thunk table, we must fall back -- the per-class
+    // VTableProxy can dispatch only the methods we wired thunks for.
+    Cppyy::TCppMethod_t cand = nullptr;
+    bool any_uncovered_override = false;
+    for (auto m : methods) {
+        if (Cppyy::IsConstructor(m) || Cppyy::IsDestructor(m))
+            continue;
+        const std::string& mname = Cppyy::GetMethodName(m);
+        if (PyMapping_HasKeyString(dct, (char*)mname.c_str()) != 1)
+            continue;
+        // This base method IS being overridden in Python. Log its
+        // signature for the thunk-table-expansion priority list.
+        std::string sig = Cppyy::GetMethodReturnTypeAsString(m) + " (";
+        Cppyy::TCppIndex_t n = Cppyy::GetMethodNumArgs(m);
+        for (Cppyy::TCppIndex_t i = 0; i < n; ++i) {
+            if (i) sig += ",";
+            sig += Cppyy::GetMethodArgCanonTypeAsString(m, i);
+        }
+        sig += ")";
+        S.sigs[S.sig_head] = sig;
+        S.sig_head = (S.sig_head + 1) % VTableProxyDetect::Stats::kSigLog;
+
+        // Single source of truth: ask the thunk table directly. Today
+        // the thunk table covers int(int), int(), void(int), double(double),
+        // bool(int), int(int,int); new rows in PyVirtualHandler.cxx flow
+        // through here without touching the predicate.
+        bool in_thunk_table = CPyCppyy::IsInThunkTable(m);
+        if (in_thunk_table) {
+            if (cand) {  // multiple covered methods overridden
+                any_uncovered_override = true;
+                break;
+            }
+            cand = m;
+        } else {
+            any_uncovered_override = true;
+            break;
+        }
+    }
+
+    if (!cand || any_uncovered_override) {
+        ++S.miss_no_int_int;
+        return false;
+    }
+
+    ++S.eligible;
+    // Build the actual signature string from the matched method (the
+    // hardcoded "int (int)" was wrong for the broader thunk table: int(),
+    // void(int), etc.).
+    std::string sig = Cppyy::GetMethodReturnTypeAsString(cand) + " (";
+    Cppyy::TCppIndex_t na = Cppyy::GetMethodNumArgs(cand);
+    for (Cppyy::TCppIndex_t i = 0; i < na; ++i) {
+        if (i) sig += ",";
+        sig += Cppyy::GetMethodArgCanonTypeAsString(cand, i);
+    }
+    sig += ")";
+
+    const std::string& name = Cppyy::GetMethodName(cand);
+    auto t_end = std::chrono::steady_clock::now();
+    double ms = std::chrono::duration<double, std::milli>(t_end - t_start).count();
+    auto* d = new VTableProxyDispatcher(
+        Cppyy::SizeOf(basetype), /*method_slot=*/2,
+        {name}, std::move(sig), ms);
+    const char* base_mod = ((CPPScope*)PyTuple_GET_ITEM(bases, 0))->fModuleName;
+    DispatcherRegistry::Instance().Register(
+        (base_mod ? std::string(base_mod) + "::<derived>" : std::string("<derived>")),
+        d);
+
+    // Hybrid mode: attach to the CPPScope but return false. The Cling-
+    // emitted dispatcher class is still generated for type identity /
+    // introspection / pointer-rebinding semantics; CPPConstructor will
+    // detect fDispatcher post-dispatcher-construction and overlay the
+    // dispatcher's vtable slot with the matching thunk, so per-call cost
+    // becomes the thunk table's instead of the Cling-emitted forwarder's.
+    klass->fDispatcher = d;
+    return false;
+}
+
+namespace CPyCppyy {
+PyObject* VTableProxyStats(PyObject*, PyObject*)
+{
+    auto& S = VTableProxyDetect::g_stats;
+    PyObject* d = PyDict_New();
+    auto put = [&](const char* k, unsigned long v) {
+        PyObject* pv = PyLong_FromUnsignedLong(v);
+        PyDict_SetItemString(d, k, pv);
+        Py_DECREF(pv);
+    };
+    put("total", S.total);
+    put("eligible", S.eligible);
+    put("miss_multi_base", S.miss_multi_base);
+    put("miss_bad_base", S.miss_bad_base);
+    put("miss_no_int_int", S.miss_no_int_int);
+    put("miss_no_override", S.miss_no_override);
+    // Recent signatures, newest first.
+    PyObject* lst = PyList_New(0);
+    constexpr int kN = VTableProxyDetect::Stats::kSigLog;
+    for (int i = 0; i < kN; ++i) {
+        int idx = (S.sig_head - 1 - i + kN) % kN;
+        if (S.sigs[idx].empty()) continue;
+        PyObject* s = PyUnicode_FromString(S.sigs[idx].c_str());
+        PyList_Append(lst, s);
+        Py_DECREF(s);
+    }
+    PyDict_SetItemString(d, "recent_signatures", lst);
+    Py_DECREF(lst);
+    return d;
+}
+
+PyObject* VTableProxyStatsReset(PyObject*, PyObject*)
+{
+    VTableProxyDetect::g_stats = VTableProxyDetect::Stats{};
+    Py_RETURN_NONE;
+}
+}  // namespace CPyCppyy
 
 
 //----------------------------------------------------------------------------
@@ -171,10 +353,18 @@ bool CPyCppyy::InsertDispatcher(CPPScope* klass, PyObject* bases, PyObject* dct,
 // Scan all methods in dct and where it overloads base methods in klass, create
 // dispatchers on the C++ side. Then interject the dispatcher class.
 
+    auto t_insert_start = std::chrono::steady_clock::now();
+
     if (!PyTuple_Check(bases) || !PyTuple_GET_SIZE(bases) || !dct || !PyDict_Check(dct)) {
         err << "internal error: expected tuple of bases and proper dictionary";
         return false;
     }
+
+    // Fast path: a synthesized vtable for the simple-case shape.
+    // Returns true if the shape was handled here; falls through to the
+    // string-template emitter below otherwise.
+    if (TryInsertVTableProxyDispatcher(klass, bases, dct))
+        return true;
 
     if (!Utility::IncludePython()) {
         err << "failed to include Python.h";
@@ -503,6 +693,31 @@ bool CPyCppyy::InsertDispatcher(CPPScope* klass, PyObject* bases, PyObject* dct,
     }
 
     Py_XDECREF(disp_proxy);
+
+    // Register the string-template dispatcher for visibility.
+    {
+        auto t_end = std::chrono::steady_clock::now();
+        double ms = std::chrono::duration<double, std::milli>(
+            t_end - t_insert_start).count();
+        // Build a coarse signature summary: "<base>::<override-list>".
+        std::string sig = base_infos.empty() ? std::string("?")
+                                              : base_infos.front().bname_scoped;
+        sig += "::{";
+        bool first = true;
+        Py_ssize_t pos = 0;
+        PyObject *k_obj, *v_obj;
+        while (PyDict_Next(dct, &pos, &k_obj, &v_obj)) {
+            if (!PyCallable_Check(v_obj)) continue;
+            const char* nm = PyUnicode_AsUTF8(k_obj);
+            if (!nm) continue;
+            if (!first) sig += ",";
+            sig += nm;
+            first = false;
+        }
+        sig += "}";
+        auto* d = new StringTemplateDispatcher((void*)disp, std::move(sig), ms);
+        DispatcherRegistry::Instance().Register(derivedName, d);
+    }
 
     return true;
 }

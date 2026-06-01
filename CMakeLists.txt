@@ -22,7 +22,9 @@ if (NOT Python_Development_FOUND)
    message(FATAL_ERROR "Python development package not found and python component required")
 endif()
 
-include_directories("${PROJECT_SOURCE_DIR}/include" "${Python_INCLUDE_DIRS}")
+include_directories("${PROJECT_SOURCE_DIR}/include" "${Python_INCLUDE_DIRS}"
+                    "${PROJECT_SOURCE_DIR}/../CppInterOp/include"
+                    "${PROJECT_SOURCE_DIR}/../CppInterOp/build/include")
 
 file (GLOB cppyy_src src/*.cxx)
 

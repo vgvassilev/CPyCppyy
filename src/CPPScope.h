@@ -34,6 +34,11 @@ namespace CPyCppyy {
 typedef std::map<Cppyy::TCppObject_t, PyObject*> CppToPyMap_t;
 namespace Utility { struct PyOperators; }
 
+// Non-owning back-pointer to the unified dispatcher object (lifetime
+// is held by DispatcherRegistry). When set, CPPConstructor branches
+// onto the dispatcher's NewInstance path.
+class CppyyDispatcher;
+
 class CPPScope {
 public:
     enum EFlags {
@@ -60,6 +65,7 @@ public:
     } fImp;
     Utility::PyOperators*       fOperators;
     char*             fModuleName;
+    CppyyDispatcher*  fDispatcher;   // non-owning; null = no fast-path
 
 private:
     CPPScope() = delete;
