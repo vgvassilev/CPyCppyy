@@ -326,6 +326,33 @@ MarshalFromPy<char32_t>(PyObject* o, char32_t& out) noexcept {
   return true;
 }
 
+// --- C-strings (const char*, wchar_t*, char16_t*, char32_t*) --------------
+// MarshalToPy direction only. The from-Python direction requires owning the
+// returned buffer somewhere (the Python str's underlying storage isn't
+// stable across decrefs) and that policy lives in the executor / converter
+// layer, not the per-T marshaler. See CStringRefConverter for the slow-path
+// lifetime story.
+template <> inline PyObject*
+MarshalToPy<const char*>(const char* const& v) noexcept {
+  if (!v) return PyUnicode_FromStringAndSize("", 0);
+  return PyUnicode_FromString(v);
+}
+template <> inline PyObject*
+MarshalToPy<char*>(char* const& v) noexcept {
+  if (!v) return PyUnicode_FromStringAndSize("", 0);
+  return PyUnicode_FromString(v);
+}
+template <> inline PyObject*
+MarshalToPy<const wchar_t*>(const wchar_t* const& v) noexcept {
+  if (!v) return PyUnicode_FromWideChar(L"", 0);
+  return PyUnicode_FromWideChar(v, std::wcslen(v));
+}
+template <> inline PyObject*
+MarshalToPy<wchar_t*>(wchar_t* const& v) noexcept {
+  if (!v) return PyUnicode_FromWideChar(L"", 0);
+  return PyUnicode_FromWideChar(v, std::wcslen(v));
+}
+
 // --- std::string / std::wstring -------------------------------------------
 // Python-str marshalling for std::string family. Note: cppyy's slow-path
 // STLStringExecutor binds std::string return values as CPPInstance proxies
