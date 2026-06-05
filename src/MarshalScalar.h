@@ -22,6 +22,7 @@
 #include <climits>
 #include <cstdint>
 #include <cwchar>
+#include <string>
 
 namespace CPyCppyy { extern PyObject* gDefaultObject; }
 
@@ -322,6 +323,52 @@ MarshalFromPy<char32_t>(PyObject* o, char32_t& out) noexcept {
   Py_UCS4 c = PyUnicode_ReadChar(o, 0);
   if (c == (Py_UCS4)-1) return false;
   out = static_cast<char32_t>(c);
+  return true;
+}
+
+// --- std::string / std::wstring -------------------------------------------
+// Python-str marshalling for std::string family. Note: cppyy's slow-path
+// STLStringExecutor binds std::string return values as CPPInstance proxies
+// (so std::string-valued attributes stay C++ objects on the Python side
+// with identity semantics); these marshalers cover the catalog override
+// path where a Python override returns a Python str and the thunk has to
+// hand a std::string back to C++.
+template <> inline PyObject*
+MarshalToPy<std::string>(const std::string& v) noexcept {
+  return PyUnicode_FromStringAndSize(v.data(), v.size());
+}
+template <> inline bool
+MarshalFromPy<std::string>(PyObject* o, std::string& out) noexcept {
+  if (PyBytes_Check(o)) {
+    char* s = nullptr; Py_ssize_t n = 0;
+    if (PyBytes_AsStringAndSize(o, &s, &n) < 0) return false;
+    out.assign(s, n);
+    return true;
+  }
+  if (PyUnicode_Check(o)) {
+    Py_ssize_t n = 0;
+    const char* s = PyUnicode_AsUTF8AndSize(o, &n);
+    if (!s) return false;
+    out.assign(s, n);
+    return true;
+  }
+  PyErr_SetString(PyExc_TypeError, "str/bytes expected for std::string");
+  return false;
+}
+
+template <> inline PyObject*
+MarshalToPy<std::wstring>(const std::wstring& v) noexcept {
+  return PyUnicode_FromWideChar(v.data(), v.size());
+}
+template <> inline bool
+MarshalFromPy<std::wstring>(PyObject* o, std::wstring& out) noexcept {
+  if (!PyUnicode_Check(o)) {
+    PyErr_SetString(PyExc_TypeError, "str expected for std::wstring");
+    return false;
+  }
+  Py_ssize_t n = PyUnicode_GetLength(o);
+  out.resize(n);
+  if (PyUnicode_AsWideChar(o, out.data(), n) < 0) return false;
   return true;
 }
 
