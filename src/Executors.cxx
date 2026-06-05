@@ -8,6 +8,7 @@
 #include "PyStrings.h"
 #include "TypeManip.h"
 #include "Utility.h"
+#include "MarshalScalar.h"
 
 // Standard
 #include <cstring>
@@ -77,6 +78,46 @@ CPPYY_IMPL_GILCALL(float,          F)
 CPPYY_IMPL_GILCALL(double,         D)
 CPPYY_IMPL_GILCALL(PY_LONG_DOUBLE, LD)
 CPPYY_IMPL_GILCALL(void*,          R)
+
+// Compile-time map T -> GILCall<X> -- one place to add when a new
+// fundamental T joins the family. Used by ScalarExecutor<T> below to
+// collapse the ~12 per-T Executor subclass bodies (IntExecutor,
+// ShortExecutor, LongExecutor, FloatExecutor, ...) into one template
+// that delegates marshaling to MarshalScalar.h.
+namespace {
+
+template <class T> T GILCallFor(Cppyy::TCppMethod_t, Cppyy::TCppObject_t,
+                                CPyCppyy::CallContext*) noexcept;
+
+template <> inline bool      GILCallFor<bool>(Cppyy::TCppMethod_t m, Cppyy::TCppObject_t s, CPyCppyy::CallContext* c) noexcept { return GILCallB(m, s, c); }
+template <> inline int8_t    GILCallFor<int8_t>(Cppyy::TCppMethod_t m, Cppyy::TCppObject_t s, CPyCppyy::CallContext* c) noexcept { return (int8_t)GILCallC(m, s, c); }
+template <> inline uint8_t   GILCallFor<uint8_t>(Cppyy::TCppMethod_t m, Cppyy::TCppObject_t s, CPyCppyy::CallContext* c) noexcept { return (uint8_t)GILCallB(m, s, c); }
+template <> inline short     GILCallFor<short>(Cppyy::TCppMethod_t m, Cppyy::TCppObject_t s, CPyCppyy::CallContext* c) noexcept { return GILCallH(m, s, c); }
+template <> inline unsigned short GILCallFor<unsigned short>(Cppyy::TCppMethod_t m, Cppyy::TCppObject_t s, CPyCppyy::CallContext* c) noexcept { return (unsigned short)GILCallI(m, s, c); }
+template <> inline int       GILCallFor<int>(Cppyy::TCppMethod_t m, Cppyy::TCppObject_t s, CPyCppyy::CallContext* c) noexcept { return GILCallI(m, s, c); }
+template <> inline unsigned int GILCallFor<unsigned int>(Cppyy::TCppMethod_t m, Cppyy::TCppObject_t s, CPyCppyy::CallContext* c) noexcept { return (unsigned int)GILCallL(m, s, c); }
+template <> inline long      GILCallFor<long>(Cppyy::TCppMethod_t m, Cppyy::TCppObject_t s, CPyCppyy::CallContext* c) noexcept { return GILCallL(m, s, c); }
+template <> inline unsigned long GILCallFor<unsigned long>(Cppyy::TCppMethod_t m, Cppyy::TCppObject_t s, CPyCppyy::CallContext* c) noexcept { return (unsigned long)GILCallLL(m, s, c); }
+template <> inline PY_LONG_LONG  GILCallFor<PY_LONG_LONG>(Cppyy::TCppMethod_t m, Cppyy::TCppObject_t s, CPyCppyy::CallContext* c) noexcept { return GILCallLL(m, s, c); }
+template <> inline PY_ULONG_LONG GILCallFor<PY_ULONG_LONG>(Cppyy::TCppMethod_t m, Cppyy::TCppObject_t s, CPyCppyy::CallContext* c) noexcept { return (PY_ULONG_LONG)GILCallLL(m, s, c); }
+template <> inline float     GILCallFor<float>(Cppyy::TCppMethod_t m, Cppyy::TCppObject_t s, CPyCppyy::CallContext* c) noexcept { return GILCallF(m, s, c); }
+template <> inline double    GILCallFor<double>(Cppyy::TCppMethod_t m, Cppyy::TCppObject_t s, CPyCppyy::CallContext* c) noexcept { return GILCallD(m, s, c); }
+template <> inline PY_LONG_DOUBLE GILCallFor<PY_LONG_DOUBLE>(Cppyy::TCppMethod_t m, Cppyy::TCppObject_t s, CPyCppyy::CallContext* c) noexcept { return GILCallLD(m, s, c); }
+
+// One template that replaces ~12 per-T Executor::Execute bodies. The
+// per-call cost folds to the same instruction stream the hand-written
+// subclasses produced -- GILCall<X> + a single MarshalToPy<T> call.
+template <class T>
+class ScalarExecutor : public CPyCppyy::Executor {
+public:
+    PyObject* Execute(Cppyy::TCppMethod_t method, Cppyy::TCppObject_t self,
+                      CPyCppyy::CallContext* ctxt) override {
+        T result = GILCallFor<T>(method, self, ctxt);
+        return CPyCppyy::MarshalToPy<T>(result);
+    }
+};
+
+} // anonymous namespace
 
 static inline Cppyy::TCppObject_t GILCallO(Cppyy::TCppMethod_t method,
     Cppyy::TCppObject_t self, CPyCppyy::CallContext* ctxt, Cppyy::TCppScope_t klass)
