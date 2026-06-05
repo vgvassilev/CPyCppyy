@@ -13,6 +13,7 @@
 #include "TemplateProxy.h"
 #include "TupleOfInstances.h"
 #include "TypeManip.h"
+#include "MarshalScalar.h"
 #include "Utility.h"
 
 // Standard
@@ -601,10 +602,15 @@ bool CPyCppyy::Converter::ToMemory(PyObject*, void*, PyObject* /* ctxt */)
     para.fTypeCode = tc;                                                     \
     return true;
 
-#define CPPYY_IMPL_BASIC_CONVERTER_METHODS(name, type, stype, ctype, F1, F2) \
+// FromMemory routes through MarshalScalar.h's MarshalToPy<type> -- the
+// per-T PyLong_FromLong / PyFloat_FromDouble / PyBool_FromLong dispatch
+// lives in one place now. ToMemory keeps F2 because F2's range-checking
+// + float-to-int rejection (CPyCppyy_PyLong_AsInt8 etc.) is stricter
+// than MarshalFromPy; the strict-marshal variants are a follow-up.
+#define CPPYY_IMPL_BASIC_CONVERTER_METHODS(name, type, stype, ctype, F2)     \
 PyObject* CPyCppyy::name##Converter::FromMemory(void* address)               \
 {                                                                            \
-    return F1((stype)*((type*)address));                                     \
+    return MarshalToPy<type>(*((type*)address));                             \
 }                                                                            \
                                                                              \
 bool CPyCppyy::name##Converter::ToMemory(                                    \
@@ -630,7 +636,7 @@ bool CPyCppyy::name##Converter::SetArg(                                      \
         return false;                                                        \
     CPPYY_IMPL_BASIC_CONVERTER_BODY(name, type, stype, ctype, F1, F2, tc)    \
 }                                                                            \
-CPPYY_IMPL_BASIC_CONVERTER_METHODS(name, type, stype, ctype, F1, F2)
+CPPYY_IMPL_BASIC_CONVERTER_METHODS(name, type, stype, ctype, F2)
 
 #define CPPYY_IMPL_BASIC_CONVERTER_IB(name, type, stype, ctype, F1, F2, tc)  \
 bool CPyCppyy::name##Converter::SetArg(                                      \
@@ -640,7 +646,7 @@ bool CPyCppyy::name##Converter::SetArg(                                      \
         return false;                                                        \
     CPPYY_IMPL_BASIC_CONVERTER_BODY(name, type, stype, ctype, F1, F2, tc)    \
 }                                                                            \
-CPPYY_IMPL_BASIC_CONVERTER_METHODS(name, type, stype, ctype, F1, F2)
+CPPYY_IMPL_BASIC_CONVERTER_METHODS(name, type, stype, ctype, F2)
 
 #define CPPYY_IMPL_BASIC_CONVERTER_NB(name, type, stype, ctype, F1, F2, tc)  \
 bool CPyCppyy::name##Converter::SetArg(                                      \
@@ -650,7 +656,7 @@ bool CPyCppyy::name##Converter::SetArg(                                      \
         return false;                                                        \
     CPPYY_IMPL_BASIC_CONVERTER_BODY(name, type, stype, ctype, F1, F2, tc)    \
 }                                                                            \
-CPPYY_IMPL_BASIC_CONVERTER_METHODS(name, type, stype, ctype, F1, F2)
+CPPYY_IMPL_BASIC_CONVERTER_METHODS(name, type, stype, ctype, F2)
 
 //----------------------------------------------------------------------------
 static inline int ExtractChar(PyObject* pyobject, const char* tname, int low, int high)
