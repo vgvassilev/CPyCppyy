@@ -581,10 +581,16 @@ bool CPyCppyy::Converter::ToMemory(PyObject*, void*, PyObject* /* ctxt */)
 
 
 //- helper macro's -----------------------------------------------------------
+// MarshalFromPyStrict<type> mirrors the F2-validator contract
+// (range-check + float-reject + gDefaultObject -> 0 for int family).
+// The ctypes fallback and the outer gDefaultObject branch survive --
+// the latter still catches bool / float where MarshalFromPyStrict
+// matches CPyCppyy_PyLong_AsBool / PyFloat_AsDouble (no internal
+// gDefaultObject handling). F1 / F2 macro args are unused now; 3c
+// drops them from the wrapper macros + call sites.
 #define CPPYY_IMPL_BASIC_CONVERTER_BODY(name, type, stype, ctype, F1, F2, tc)\
-/* convert <pyobject> to C++ 'type', set arg for call */                     \
-    type val = (type)F2(pyobject);                                           \
-    if (val == (type)-1 && PyErr_Occurred()) {                               \
+    type val;                                                                \
+    if (!MarshalFromPyStrict<type>(pyobject, val)) {                         \
         static PyTypeObject* ctypes_type = nullptr;                          \
         if (!ctypes_type) {                                                  \
             auto error = CPyCppyy::Utility::FetchPyError();                  \
