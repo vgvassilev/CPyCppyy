@@ -3,6 +3,7 @@
 #include "Dispatcher.h"
 #include "CPPScope.h"
 #include "CppyyDispatcher.h"
+#include "PerfStats.h"
 #include "PyStrings.h"
 #include "PyVirtualHandler.h"
 #include "ProxyWrappers.h"
@@ -18,17 +19,18 @@
 
 //----------------------------------------------------------------------------
 namespace CPyCppyy { namespace VTableProxyDetect {
-// Counters for visibility into how often the fast-path predicate would
-// apply across a real cppyy workload. Exposed to Python via libcppyy's
-// `_vtableproxy_stats` entry; reset via `_vtableproxy_stats_reset`.
+// Counters tracking how often the catalog-eligibility predicate fires.
+// Surfaced through the generic `cppyy.perf_stats()` API under the
+// "vtable_proxy" section (see registration at end of file).
 struct Stats {
-    unsigned long total = 0;          // every InsertDispatcher call
-    unsigned long eligible = 0;        // matched thunk table (int(int) only)
+    unsigned long total = 0;                 // every InsertDispatcher call
+    unsigned long eligible = 0;              // catalog matched all overrides
     unsigned long miss_multi_base = 0;
     unsigned long miss_bad_base = 0;
-    unsigned long miss_no_int_int = 0;
+    unsigned long miss_no_catalog_match = 0; // a method signature wasn't in catalog
     unsigned long miss_no_override = 0;
-    // top miss-signature histogram (small-N, oldest-evicted)
+    // Ring buffer of recently-seen overridden-method signatures, used to
+    // shape priorities for catalog expansion.
     static constexpr int kSigLog = 32;
     std::string sigs[kSigLog];
     int sig_head = 0;
@@ -38,12 +40,10 @@ static Stats g_stats;
 
 bool CPyCppyy::TryInsertVTableProxyDispatcher(CPPScope* klass, PyObject* bases, PyObject* dct)
 {
-// Detect the simple-case shape the prebuilt VTableProxy thunk table
-// supports today: a single C++ base whose only user virtual method is
-// `int frob(int)`, with `frob` overridden in `dct`.
-//
-// FIXME: thunk table is single-entry; expand the predicate when the
-// signature table grows (TableGen-driven generation pending).
+// Catalog-eligibility gate: applies the fast-path overlay when every
+// Python override of an inherited virtual maps to a catalog-recognised
+// signature shape. Single-base classes only; structural rejects
+// (multi-base, abstract base) fall through to the slow path.
 
     auto& S = VTableProxyDetect::g_stats;
     auto t_start = std::chrono::steady_clock::now();
@@ -100,10 +100,9 @@ bool CPyCppyy::TryInsertVTableProxyDispatcher(CPPScope* klass, PyObject* bases, 
         S.sigs[S.sig_head] = sig;
         S.sig_head = (S.sig_head + 1) % VTableProxyDetect::Stats::kSigLog;
 
-        // Single source of truth: ask the thunk table directly. Today
-        // the thunk table covers int(int), int(), void(int), double(double),
-        // bool(int), int(int,int); new rows in PyVirtualHandler.cxx flow
-        // through here without touching the predicate.
+        // Single source of truth: ask the thunk table directly so new
+        // catalog rows in PyVirtualHandler.cxx flow through here without
+        // touching this predicate.
         bool in_thunk_table = CPyCppyy::IsInThunkTable(m);
         if (in_thunk_table) {
             if (cand) {  // multiple covered methods overridden
@@ -118,7 +117,7 @@ bool CPyCppyy::TryInsertVTableProxyDispatcher(CPPScope* klass, PyObject* bases, 
     }
 
     if (!cand || any_uncovered_override) {
-        ++S.miss_no_int_int;
+        ++S.miss_no_catalog_match;
         return false;
     }
 
@@ -155,9 +154,13 @@ bool CPyCppyy::TryInsertVTableProxyDispatcher(CPPScope* klass, PyObject* bases, 
     return false;
 }
 
-namespace CPyCppyy {
-PyObject* VTableProxyStats(PyObject*, PyObject*)
+//----------------------------------------------------------------------------
+// "vtable_proxy" perf-stats section. Registered via PerfStats.h so callers
+// can introspect catalog eligibility via cppyy.perf_stats("vtable_proxy").
+namespace {
+PyObject* VTableProxyReport()
 {
+    using namespace CPyCppyy;
     auto& S = VTableProxyDetect::g_stats;
     PyObject* d = PyDict_New();
     auto put = [&](const char* k, unsigned long v) {
@@ -169,7 +172,7 @@ PyObject* VTableProxyStats(PyObject*, PyObject*)
     put("eligible", S.eligible);
     put("miss_multi_base", S.miss_multi_base);
     put("miss_bad_base", S.miss_bad_base);
-    put("miss_no_int_int", S.miss_no_int_int);
+    put("miss_no_catalog_match", S.miss_no_catalog_match);
     put("miss_no_override", S.miss_no_override);
     // Recent signatures, newest first.
     PyObject* lst = PyList_New(0);
@@ -186,12 +189,20 @@ PyObject* VTableProxyStats(PyObject*, PyObject*)
     return d;
 }
 
-PyObject* VTableProxyStatsReset(PyObject*, PyObject*)
+void VTableProxyResetSection()
 {
-    VTableProxyDetect::g_stats = VTableProxyDetect::Stats{};
-    Py_RETURN_NONE;
+    CPyCppyy::VTableProxyDetect::g_stats = CPyCppyy::VTableProxyDetect::Stats{};
 }
-}  // namespace CPyCppyy
+
+// Static initializer registers the section once per process.
+struct VTableProxySectionRegistrar {
+    VTableProxySectionRegistrar() {
+        CPyCppyy::RegisterPerfSection(
+            "vtable_proxy", &VTableProxyReport, &VTableProxyResetSection);
+    }
+};
+const VTableProxySectionRegistrar g_vtable_proxy_section_registrar;
+} // anonymous
 
 
 //----------------------------------------------------------------------------
