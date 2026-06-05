@@ -23,13 +23,14 @@ public:                                                                      \
 
 // executors for built-ins
 CPPYY_DECL_EXEC(BoolConstRef);
-CPPYY_DECL_EXEC(Char);
+// CharExecutor / WCharExecutor / Char16Executor / Char32Executor are
+// collapsed into ScalarExecutor<T> via MarshalScalar.h. UCharExecutor
+// stays in place because `unsigned char` is a typedef of uint8_t on every
+// supported platform, and the latter uses int-marshaling -- the slow path
+// must use spelling-based selection to keep UCharExecutor's str semantics.
 CPPYY_DECL_EXEC(CharConstRef);
 CPPYY_DECL_EXEC(UChar);
 CPPYY_DECL_EXEC(UCharConstRef);
-CPPYY_DECL_EXEC(WChar);
-CPPYY_DECL_EXEC(Char16);
-CPPYY_DECL_EXEC(Char32);
 CPPYY_DECL_EXEC(Void);
 CPPYY_DECL_EXEC(CString);
 CPPYY_DECL_EXEC(CStringRef);

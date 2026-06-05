@@ -103,6 +103,17 @@ template <> inline PY_ULONG_LONG GILCallFor<PY_ULONG_LONG>(Cppyy::TCppMethod_t m
 template <> inline float     GILCallFor<float>(Cppyy::TCppMethod_t m, Cppyy::TCppObject_t s, CPyCppyy::CallContext* c) { return GILCallF(m, s, c); }
 template <> inline double    GILCallFor<double>(Cppyy::TCppMethod_t m, Cppyy::TCppObject_t s, CPyCppyy::CallContext* c) { return GILCallD(m, s, c); }
 template <> inline PY_LONG_DOUBLE GILCallFor<PY_LONG_DOUBLE>(Cppyy::TCppMethod_t m, Cppyy::TCppObject_t s, CPyCppyy::CallContext* c) { return GILCallLD(m, s, c); }
+// char family. cppyy marshals these as 1-char strings, not integers --
+// see MarshalToPy<char> / MarshalToPy<wchar_t> in MarshalScalar.h.
+// `signed char` / `unsigned char` are typedef-aliases of int8_t / uint8_t
+// on every supported platform; collapsing them through ScalarExecutor
+// would pick up the int-returning int8_t marshaler instead of the
+// str-returning UCharExecutor body, so those two retain their legacy
+// classes.
+template <> inline char          GILCallFor<char>(Cppyy::TCppMethod_t m, Cppyy::TCppObject_t s, CPyCppyy::CallContext* c) { return (char)GILCallC(m, s, c); }
+template <> inline wchar_t       GILCallFor<wchar_t>(Cppyy::TCppMethod_t m, Cppyy::TCppObject_t s, CPyCppyy::CallContext* c) { return (wchar_t)GILCallL(m, s, c); }
+template <> inline char16_t      GILCallFor<char16_t>(Cppyy::TCppMethod_t m, Cppyy::TCppObject_t s, CPyCppyy::CallContext* c) { return (char16_t)GILCallL(m, s, c); }
+template <> inline char32_t      GILCallFor<char32_t>(Cppyy::TCppMethod_t m, Cppyy::TCppObject_t s, CPyCppyy::CallContext* c) { return (char32_t)GILCallL(m, s, c); }
 
 // One template that replaces ~12 per-T Executor::Execute bodies. The
 // per-call cost folds to the same instruction stream the hand-written
@@ -193,21 +204,16 @@ PyObject* CPyCppyy::BoolConstRefExecutor::Execute(
 }
 
 //----------------------------------------------------------------------------
-PyObject* CPyCppyy::CharExecutor::Execute(
-    Cppyy::TCppMethod_t method, Cppyy::TCppObject_t self, CallContext* ctxt)
-{
-// execute <method with argument <self, ctxt>, construct python string return value
-// with the single char
-    return CPyCppyy_PyText_FromLong((int)GILCallC(method, self, ctxt));
-}
+// CharExecutor / WCharExecutor / Char16Executor / Char32Executor were
+// collapsed into ScalarExecutor<T> -- their bodies are MarshalToPy<T> in
+// MarshalScalar.h (the char family produces 1-char strings, the wide-char
+// family produces 1-char Python unicode objects).
 
 //----------------------------------------------------------------------------
 PyObject* CPyCppyy::CharConstRefExecutor::Execute(
     Cppyy::TCppMethod_t method, Cppyy::TCppObject_t self, CallContext* ctxt)
 {
-// execute <method> with argument <self, ctxt>, construct python string return value
-// with the single char
-    return CPyCppyy_PyText_FromLong(*((char*)GILCallR(method, self, ctxt)));
+    return MarshalToPy<char>(*((char*)GILCallR(method, self, ctxt)));
 }
 
 //----------------------------------------------------------------------------
@@ -226,36 +232,6 @@ PyObject* CPyCppyy::UCharConstRefExecutor::Execute(
 // execute <method> with argument <self, ctxt>, construct python string return value
 // with the single char from the pointer return
     return CPyCppyy_PyText_FromLong(*((unsigned char*)GILCallR(method, self, ctxt)));
-}
-
-//----------------------------------------------------------------------------
-PyObject* CPyCppyy::WCharExecutor::Execute(
-    Cppyy::TCppMethod_t method, Cppyy::TCppObject_t self, CallContext* ctxt)
-{
-// execute <method> with argument <self, args>, construct python string return value
-// with the single wide char
-    wchar_t res = (wchar_t)GILCallL(method, self, ctxt);
-    return PyUnicode_FromWideChar(&res, 1);
-}
-
-//----------------------------------------------------------------------------
-PyObject* CPyCppyy::Char16Executor::Execute(
-    Cppyy::TCppMethod_t method, Cppyy::TCppObject_t self, CallContext* ctxt)
-{
-// execute <method> with argument <self, args>, construct python string return value
-// with the single char16
-    char16_t res = (char16_t)GILCallL(method, self, ctxt);
-    return PyUnicode_DecodeUTF16((const char*)&res, sizeof(char16_t), nullptr, nullptr);
-}
-
-//----------------------------------------------------------------------------
-PyObject* CPyCppyy::Char32Executor::Execute(
-    Cppyy::TCppMethod_t method, Cppyy::TCppObject_t self, CallContext* ctxt)
-{
-// execute <method> with argument <self, args>, construct python string return value
-// with the single char32
-    char32_t res = (char32_t)GILCallL(method, self, ctxt);
-    return PyUnicode_DecodeUTF32((const char*)&res, sizeof(char32_t), nullptr, nullptr);
 }
 
 //----------------------------------------------------------------------------
@@ -1047,7 +1023,7 @@ public:
         gf["bool"] =                        (ef_t)+[](cdims_t) { static ScalarExecutor<bool> e{};          return &e; };
         gf["bool&"] =                       (ef_t)+[](cdims_t) { return new BoolRefExecutor{}; };
         gf["const bool&"] =                 (ef_t)+[](cdims_t) { static BoolConstRefExecutor e{};  return &e; };
-        gf["char"] =                        (ef_t)+[](cdims_t) { static CharExecutor e{};          return &e; };
+        gf["char"] =                        (ef_t)+[](cdims_t) { static ScalarExecutor<char> e{};          return &e; };
         gf["signed char"] =                 gf["char"];
         gf["unsigned char"] =               (ef_t)+[](cdims_t) { static UCharExecutor e{};         return &e; };
         gf["char&"] =                       (ef_t)+[](cdims_t) { return new CharRefExecutor{}; };
@@ -1056,9 +1032,9 @@ public:
         gf["const char&"] =                 (ef_t)+[](cdims_t) { static CharConstRefExecutor e{};  return &e; };
         gf["const signed char&"] =          gf["const char&"];
         gf["const unsigned char&"] =        (ef_t)+[](cdims_t) { static UCharConstRefExecutor e{}; return &e; };
-        gf["wchar_t"] =                     (ef_t)+[](cdims_t) { static WCharExecutor e{};         return &e; };
-        gf["char16_t"] =                    (ef_t)+[](cdims_t) { static Char16Executor e{};        return &e; };
-        gf["char32_t"] =                    (ef_t)+[](cdims_t) { static Char32Executor e{};        return &e; };
+        gf["wchar_t"] =                     (ef_t)+[](cdims_t) { static ScalarExecutor<wchar_t> e{};  return &e; };
+        gf["char16_t"] =                    (ef_t)+[](cdims_t) { static ScalarExecutor<char16_t> e{}; return &e; };
+        gf["char32_t"] =                    (ef_t)+[](cdims_t) { static ScalarExecutor<char32_t> e{}; return &e; };
         gf["int8_t"] =                      (ef_t)+[](cdims_t) { static ScalarExecutor<int8_t> e{};          return &e; };
         gf["int8_t&"] =                     (ef_t)+[](cdims_t) { return new Int8RefExecutor{}; };
         gf["const int8_t&"] =               (ef_t)+[](cdims_t) { static Int8RefExecutor e{};       return &e; };

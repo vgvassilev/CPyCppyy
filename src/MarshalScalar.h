@@ -21,6 +21,7 @@
 #include <Python.h>
 #include <climits>
 #include <cstdint>
+#include <cwchar>
 
 namespace CPyCppyy { extern PyObject* gDefaultObject; }
 
@@ -207,6 +208,120 @@ template <> inline bool MarshalFromPy<PY_LONG_DOUBLE>(
   double v = PyFloat_AsDouble(o);
   if (v == -1.0 && PyErr_Occurred()) return false;
   out = static_cast<PY_LONG_DOUBLE>(v);
+  return true;
+}
+
+// --- char / signed char / unsigned char -----------------------------------
+// CPyCppyy maps `char` and `unsigned char` to 1-char Python strings (the
+// CharExecutor / UCharExecutor convention); see CPyCppyy_PyText_FromLong in
+// Executors.cxx. Distinct from the int8_t / uint8_t specializations above
+// which marshal as integers (Int8Executor).
+namespace detail {
+inline PyObject* PyTextFromChar(long cl) noexcept {
+  if (cl < -128 || cl > 255) {
+    PyErr_SetString(PyExc_ValueError, "char conversion out of range");
+    return nullptr;
+  }
+  unsigned char c = static_cast<unsigned char>(cl < 0 ? 256 + cl : cl);
+  return PyUnicode_FromStringAndSize(reinterpret_cast<char*>(&c), 1);
+}
+inline bool CharFromPy(PyObject* o, long& cl, long lo, long hi) noexcept {
+  Py_ssize_t len = 0;
+  const char* s = nullptr;
+  if (PyUnicode_Check(o))
+    s = PyUnicode_AsUTF8AndSize(o, &len);
+  else if (PyBytes_Check(o))
+    PyBytes_AsStringAndSize(o, const_cast<char**>(&s), &len);
+  if (s) {
+    if (len != 1) {
+      PyErr_Format(PyExc_TypeError,
+                   "char expected, got string of size %zd", len);
+      return false;
+    }
+    cl = static_cast<unsigned char>(s[0]);
+    return true;
+  }
+  PyErr_Clear();
+  long l = PyLong_AsLong(o);
+  if (l == -1 && PyErr_Occurred()) return false;
+  if (l < lo || l > hi) {
+    PyErr_Format(PyExc_ValueError,
+                 "char value %ld not in range [%ld,%ld]", l, lo, hi);
+    return false;
+  }
+  cl = l;
+  return true;
+}
+} // namespace detail
+
+template <> inline PyObject* MarshalToPy<char>(const char& v) noexcept {
+  return detail::PyTextFromChar(static_cast<long>(v));
+}
+template <> inline bool MarshalFromPy<char>(PyObject* o, char& out) noexcept {
+  long cl;
+  if (!detail::CharFromPy(o, cl, CHAR_MIN, CHAR_MAX)) return false;
+  out = static_cast<char>(cl);
+  return true;
+}
+
+// NOTE: `signed char` is the same type as int8_t and `unsigned char` is
+// uint8_t on all platforms CPyCppyy targets, so specializing MarshalToPy
+// on those types would collide with the int8_t / uint8_t specializations
+// above. The slow-path UCharExecutor / SCharAsIntExecutor still use the
+// spelling-keyed lookup in the executor registry to pick between
+// str-marshaling and int-marshaling.
+
+// --- wchar_t / char16_t / char32_t ----------------------------------------
+template <> inline PyObject* MarshalToPy<wchar_t>(const wchar_t& v) noexcept {
+  return PyUnicode_FromWideChar(&v, 1);
+}
+template <> inline bool
+MarshalFromPy<wchar_t>(PyObject* o, wchar_t& out) noexcept {
+  if (!PyUnicode_Check(o) || PyUnicode_GetLength(o) != 1) {
+    PyErr_SetString(PyExc_TypeError, "wchar_t expected, got non-1-char str");
+    return false;
+  }
+  wchar_t w[1] = {};
+  if (PyUnicode_AsWideChar(o, w, 1) != 1) return false;
+  out = w[0];
+  return true;
+}
+
+template <> inline PyObject*
+MarshalToPy<char16_t>(const char16_t& v) noexcept {
+  return PyUnicode_DecodeUTF16(reinterpret_cast<const char*>(&v),
+                               sizeof(char16_t), nullptr, nullptr);
+}
+template <> inline bool
+MarshalFromPy<char16_t>(PyObject* o, char16_t& out) noexcept {
+  if (!PyUnicode_Check(o) || PyUnicode_GetLength(o) != 1) {
+    PyErr_SetString(PyExc_TypeError, "char16_t expected, got non-1-char str");
+    return false;
+  }
+  Py_UCS4 c = PyUnicode_ReadChar(o, 0);
+  if (c == (Py_UCS4)-1) return false;
+  if (c > 0xFFFF) {
+    PyErr_SetString(PyExc_ValueError, "char16_t value > 0xFFFF");
+    return false;
+  }
+  out = static_cast<char16_t>(c);
+  return true;
+}
+
+template <> inline PyObject*
+MarshalToPy<char32_t>(const char32_t& v) noexcept {
+  return PyUnicode_DecodeUTF32(reinterpret_cast<const char*>(&v),
+                               sizeof(char32_t), nullptr, nullptr);
+}
+template <> inline bool
+MarshalFromPy<char32_t>(PyObject* o, char32_t& out) noexcept {
+  if (!PyUnicode_Check(o) || PyUnicode_GetLength(o) != 1) {
+    PyErr_SetString(PyExc_TypeError, "char32_t expected, got non-1-char str");
+    return false;
+  }
+  Py_UCS4 c = PyUnicode_ReadChar(o, 0);
+  if (c == (Py_UCS4)-1) return false;
+  out = static_cast<char32_t>(c);
   return true;
 }
 
