@@ -29,6 +29,8 @@
 #include <sstream>
 #include <cstddef>
 #include <string_view>
+#include <unordered_map>
+#include <unordered_set>
 #if __cplusplus >= 202002L
 #include <span>
 #endif
@@ -55,6 +57,17 @@ namespace CPyCppyy {
 // factories
     typedef std::map<std::string, cf_t> ConvFactories_t;
     static ConvFactories_t gConvFactories;
+
+// Canonical-type projection of gConvFactories. Populated lazily on the
+// first CreateConverter(TCppType_t) call (Cpp::GetType requires an
+// active interpreter, so this can't happen at static-init time). Aliases
+// that canonicalize to the same QualType -- Long64_t / long long,
+// std::byte / uint8_t, internal_enum_type_t / int -- collapse to a single
+// entry. Spellings that don't resolve (the "X ptr" decoration family,
+// pseudo-types like SCharAsInt) stay reachable only via the string
+// fallback in CreateConverter(TCppType_t) below.
+    typedef std::unordered_map<Cppyy::TCppType_t, cf_t> ConvFactoriesByType_t;
+    static ConvFactoriesByType_t gConvFactoriesByType;
 
 // special objects
     extern PyObject* gNullPtrObject;
@@ -3537,6 +3550,65 @@ CPyCppyy::Converter* CPyCppyy::CreateConverter(const std::string& fullType, cdim
 CPYCPPYY_EXPORT
 CPyCppyy::Converter* CPyCppyy::CreateConverter(Cppyy::TCppType_t type, cdims_t dims)
 {
+// Lazy projection of gConvFactories into canonical-QualType space. Has
+// to happen here rather than at static-init time because Cpp::GetType
+// needs an active interpreter -- and the first CreateConverter call is
+// the earliest moment we know one exists. Idempotent; the static flag
+// is single-threaded by construction (binding setup is not concurrent).
+    static bool typeMapPopulated = false;
+    if (!typeMapPopulated) {
+        // enable_slow_lookup=true delegates to cppyy's __typeof__
+        // trampoline so qualified ("const T&"), namespaced
+        // ("std::basic_string<char>"), and decorated ("T*", "T**",
+        // "T&", "T&&") spellings all canonicalize via a single
+        // primitive. Pseudo-types ("SCharAsInt", "T ptr") that
+        // don't map to a real QualType throw or return null and
+        // stay reachable through the string fallback below.
+        //
+        // Collision policy: cppyy's spelling-keyed registry deliberately
+        // routes alias-equivalent spellings to different converters --
+        // e.g. `signed char` -> CharConverter (1-char str semantics) vs
+        // `int8_t` -> Int8Converter (integer semantics), both canonical
+        // to the same TCppType_t. The QT-keyed cache cannot encode that
+        // choice, so we skip any TCppType_t for which two registered
+        // spellings map to different cf_t values. Those go through the
+        // string ladder below where the spelling resolves it.
+        std::unordered_map<Cppyy::TCppType_t, cf_t> first_seen;
+        std::unordered_set<Cppyy::TCppType_t> ambiguous;
+        for (const auto& kv : gConvFactories) {
+            Cppyy::TCppType_t qt = nullptr;
+            try {
+                qt = Cppyy::GetType(kv.first, /*enable_slow_lookup=*/true);
+            } catch (const std::exception&) {
+                continue;  // pseudo-type / unparseable spelling.
+            }
+            if (!qt) continue;
+            auto it = first_seen.find(qt);
+            if (it == first_seen.end())
+                first_seen.emplace(qt, kv.second);
+            else if (it->second != kv.second)
+                ambiguous.insert(qt);
+        }
+        for (const auto& kv : first_seen)
+            if (!ambiguous.count(kv.first))
+                gConvFactoriesByType.emplace(kv.first, kv.second);
+        typeMapPopulated = true;
+    }
+
+// Canonical-identity primary lookup. Cpp::GetType / Cppyy::GetMethodArgType
+// already canonicalize, so equality on TCppType_t is canonical-type
+// identity -- a void* compare collapses the typedef-resolution + alias
+// (Long64_t, std::byte, internal_enum_type_t) lookups the string ladder
+// below pays string compares for. Decoration policy fallbacks (drop
+// const for Python, array-decay, T&& -> const T&) still live in the
+// string ladder; migrating them to QT-keyed transforms via the
+// CppInterOp Get*Type / RemoveTypeQualifier APIs is the follow-up.
+    {
+        auto h = gConvFactoriesByType.find(type);
+        if (h != gConvFactoriesByType.end())
+            return (h->second)(dims);
+    }
+
 // The matching of the fulltype to a converter factory goes through up to five levels:
 //   1) full, exact match
 //   2) match of decorated, unqualified type
