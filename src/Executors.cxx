@@ -184,16 +184,6 @@ CPyCppyy::Executor::~Executor()
 }
 
 //- executors for built-ins --------------------------------------------------
-PyObject* CPyCppyy::BoolExecutor::Execute(
-    Cppyy::TCppMethod_t method, Cppyy::TCppObject_t self, CallContext* ctxt)
-{
-// execute <method> with argument <self, ctxt>, construct python bool return value
-    bool retval = GILCallB(method, self, ctxt);
-    PyObject* result = retval ? Py_True : Py_False;
-    Py_INCREF(result);
-    return result;
-}
-
 //----------------------------------------------------------------------------
 PyObject* CPyCppyy::BoolConstRefExecutor::Execute(
     Cppyy::TCppMethod_t method, Cppyy::TCppObject_t self, CallContext* ctxt)
@@ -266,96 +256,6 @@ PyObject* CPyCppyy::Char32Executor::Execute(
 // with the single char32
     char32_t res = (char32_t)GILCallL(method, self, ctxt);
     return PyUnicode_DecodeUTF32((const char*)&res, sizeof(char32_t), nullptr, nullptr);
-}
-
-//----------------------------------------------------------------------------
-PyObject* CPyCppyy::IntExecutor::Execute(
-    Cppyy::TCppMethod_t method, Cppyy::TCppObject_t self, CallContext* ctxt)
-{
-// execute <method> with argument <self, ctxt>, construct python int return value
-    return PyInt_FromLong((int)GILCallI(method, self, ctxt));
-}
-
-//----------------------------------------------------------------------------
-PyObject* CPyCppyy::Int8Executor::Execute(
-    Cppyy::TCppMethod_t method, Cppyy::TCppObject_t self, CallContext* ctxt)
-{
-// execute <method> with argument <self, ctxt>, construct python int return value
-    return PyInt_FromLong((int8_t)GILCallC(method, self, ctxt));
-}
-
-//----------------------------------------------------------------------------
-PyObject* CPyCppyy::UInt8Executor::Execute(
-    Cppyy::TCppMethod_t method, Cppyy::TCppObject_t self, CallContext* ctxt)
-{
-// execute <method> with argument <self, ctxt>, construct python int return value
-    return PyInt_FromLong((uint8_t)GILCallB(method, self, ctxt));
-}
-
-//----------------------------------------------------------------------------
-PyObject* CPyCppyy::ShortExecutor::Execute(
-    Cppyy::TCppMethod_t method, Cppyy::TCppObject_t self, CallContext* ctxt)
-{
-// execute <method> with argument <self, ctxt>, construct python int return value
-    return PyInt_FromLong((short)GILCallH(method, self, ctxt));
-}
-
-//----------------------------------------------------------------------------
-PyObject* CPyCppyy::LongExecutor::Execute(
-    Cppyy::TCppMethod_t method, Cppyy::TCppObject_t self, CallContext* ctxt)
-{
-// execute <method> with argument <self, ctxt>, construct python long return value
-    return PyLong_FromLong((long)GILCallL(method, self, ctxt));
-}
-
-//----------------------------------------------------------------------------
-PyObject* CPyCppyy::ULongExecutor::Execute(
-    Cppyy::TCppMethod_t method, Cppyy::TCppObject_t self, CallContext* ctxt)
-{
-// execute <method> with argument <self, ctxt>, construct python unsigned long return value
-    return PyLong_FromUnsignedLong((unsigned long)GILCallLL(method, self, ctxt));
-}
-
-//----------------------------------------------------------------------------
-PyObject* CPyCppyy::LongLongExecutor::Execute(
-    Cppyy::TCppMethod_t method, Cppyy::TCppObject_t self, CallContext* ctxt)
-{
-// execute <method> with argument <self, ctxt>, construct python long long return value
-    PY_LONG_LONG result = GILCallLL(method, self, ctxt);
-    return PyLong_FromLongLong(result);
-}
-
-//----------------------------------------------------------------------------
-PyObject* CPyCppyy::ULongLongExecutor::Execute(
-    Cppyy::TCppMethod_t method, Cppyy::TCppObject_t self, CallContext* ctxt)
-{
-// execute <method> with argument <self, ctxt>, construct python unsigned long long return value
-    PY_ULONG_LONG result = (PY_ULONG_LONG)GILCallLL(method, self, ctxt);
-    return PyLong_FromUnsignedLongLong(result);
-}
-
-//----------------------------------------------------------------------------
-PyObject* CPyCppyy::FloatExecutor::Execute(
-    Cppyy::TCppMethod_t method, Cppyy::TCppObject_t self, CallContext* ctxt)
-{
-// execute <method> with argument <self, ctxt>, construct python float return value
-    return PyFloat_FromDouble((double)GILCallF(method, self, ctxt));
-}
-
-//----------------------------------------------------------------------------
-PyObject* CPyCppyy::DoubleExecutor::Execute(
-    Cppyy::TCppMethod_t method, Cppyy::TCppObject_t self, CallContext* ctxt)
-{
-// execute <method> with argument <self, ctxt>, construct python float return value
-    return PyFloat_FromDouble((double)GILCallD(method, self, ctxt));
-}
-
-//----------------------------------------------------------------------------
-PyObject* CPyCppyy::LongDoubleExecutor::Execute(
-    Cppyy::TCppMethod_t method, Cppyy::TCppObject_t self, CallContext* ctxt)
-{
-// execute <method> with argument <self, ctxt>, construct python float return value
-    return PyFloat_FromDouble((double)GILCallLD(method, self, ctxt));
 }
 
 //----------------------------------------------------------------------------
@@ -1188,7 +1088,7 @@ public:
         gf["float&"] =                      (ef_t)+[](cdims_t) { return new FloatRefExecutor{}; };
         gf["double"] =                      (ef_t)+[](cdims_t) { static ScalarExecutor<double> e{};     return &e; };
         gf["double&"] =                     (ef_t)+[](cdims_t) { return new DoubleRefExecutor{}; };
-        gf["long double"] =                 (ef_t)+[](cdims_t) { static LongDoubleExecutor e{}; return &e; }; // TODO: lost precision
+        gf["long double"] =                 (ef_t)+[](cdims_t) { static ScalarExecutor<PY_LONG_DOUBLE> e{}; return &e; }; // TODO: lost precision
         gf["long double&"] =                (ef_t)+[](cdims_t) { return new LongDoubleRefExecutor{}; };
         gf["std::complex<double>"] =        (ef_t)+[](cdims_t) { static ComplexDExecutor e{};    return &e; };
         gf["std::complex<double>&"] =       (ef_t)+[](cdims_t) { return new ComplexDRefExecutor{}; };
