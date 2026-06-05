@@ -609,7 +609,12 @@ bool CPyCppyy::Converter::ToMemory(PyObject*, void*, PyObject* /* ctxt */)
 // lives in one place now. ToMemory keeps F2 because F2's range-checking
 // + float-to-int rejection (CPyCppyy_PyLong_AsInt8 etc.) is stricter
 // than MarshalFromPy; the strict-marshal variants are a follow-up.
-#define CPPYY_IMPL_BASIC_CONVERTER_METHODS(name, type, stype, ctype, F2)     \
+// ToMemory routes through MarshalScalar.h's MarshalFromPyStrict<type>
+// which mirrors the CPyCppyy_PyLong_As* validator contract (range-check
+// + float-reject + gDefaultObject -> 0). F2 disappears from this macro;
+// the wrapper macros (_NI, _IB, _NB) still take F2 because SetArg uses
+// it through CPPYY_IMPL_BASIC_CONVERTER_BODY.
+#define CPPYY_IMPL_BASIC_CONVERTER_METHODS(name, type, stype, ctype)         \
 PyObject* CPyCppyy::name##Converter::FromMemory(void* address)               \
 {                                                                            \
     return MarshalToPy<type>(*((type*)address));                             \
@@ -618,15 +623,10 @@ PyObject* CPyCppyy::name##Converter::FromMemory(void* address)               \
 bool CPyCppyy::name##Converter::ToMemory(                                    \
     PyObject* value, void* address, PyObject* /* ctxt */)                    \
 {                                                                            \
-    type s = (type)F2(value);                                                \
-    if (s == (type)-1 && PyErr_Occurred()) {                                 \
-        if (value == CPyCppyy::gDefaultObject) {                             \
-            PyErr_Clear();                                                   \
-            s = (type)0;                                                     \
-        } else                                                               \
-            return false;                                                    \
-    }                                                                        \
-    *((type*)address) = (type)s;                                             \
+    type s;                                                                  \
+    if (!MarshalFromPyStrict<type>(value, s))                                \
+        return false;                                                        \
+    *((type*)address) = s;                                                   \
     return true;                                                             \
 }
 
@@ -638,7 +638,7 @@ bool CPyCppyy::name##Converter::SetArg(                                      \
         return false;                                                        \
     CPPYY_IMPL_BASIC_CONVERTER_BODY(name, type, stype, ctype, F1, F2, tc)    \
 }                                                                            \
-CPPYY_IMPL_BASIC_CONVERTER_METHODS(name, type, stype, ctype, F2)
+CPPYY_IMPL_BASIC_CONVERTER_METHODS(name, type, stype, ctype)
 
 #define CPPYY_IMPL_BASIC_CONVERTER_IB(name, type, stype, ctype, F1, F2, tc)  \
 bool CPyCppyy::name##Converter::SetArg(                                      \
@@ -648,7 +648,7 @@ bool CPyCppyy::name##Converter::SetArg(                                      \
         return false;                                                        \
     CPPYY_IMPL_BASIC_CONVERTER_BODY(name, type, stype, ctype, F1, F2, tc)    \
 }                                                                            \
-CPPYY_IMPL_BASIC_CONVERTER_METHODS(name, type, stype, ctype, F2)
+CPPYY_IMPL_BASIC_CONVERTER_METHODS(name, type, stype, ctype)
 
 #define CPPYY_IMPL_BASIC_CONVERTER_NB(name, type, stype, ctype, F1, F2, tc)  \
 bool CPyCppyy::name##Converter::SetArg(                                      \
@@ -658,7 +658,7 @@ bool CPyCppyy::name##Converter::SetArg(                                      \
         return false;                                                        \
     CPPYY_IMPL_BASIC_CONVERTER_BODY(name, type, stype, ctype, F1, F2, tc)    \
 }                                                                            \
-CPPYY_IMPL_BASIC_CONVERTER_METHODS(name, type, stype, ctype, F2)
+CPPYY_IMPL_BASIC_CONVERTER_METHODS(name, type, stype, ctype)
 
 //----------------------------------------------------------------------------
 static inline int ExtractChar(PyObject* pyobject, const char* tname, int low, int high)
