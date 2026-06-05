@@ -147,6 +147,7 @@ enum class SigShape : int {
   Double_Void,     // double f()
   // 1-arg
   Int_Int,         // int  f(int)
+  Int_IntRef,      // int  f(int &)  -- ref arg, in-param semantics
   Int_Bool,        // int  f(bool)
   Void_Int,        // void f(int)
   Void_Bool,       // void f(bool)
@@ -201,7 +202,14 @@ SigShape ClassifySignature(Cpp::TCppFunction_t method) {
     bool a0_int = Cpp::IsIntegerType(a0);
     bool a0_double = (a0 == kDouble);
     bool a0_bool = (a0 == kBool);
-    if (ret_int    && a0_int)    return SigShape::Int_Int;
+    // Check int& ref-arg before scalar int (Cpp::IsIntegerType returns
+    // true for int& too -- it sees through the reference).
+    {
+      static const Cpp::TCppType_t kIntRef =
+          Cpp::GetReferencedType(Cpp::GetType("int"), /*rvalue=*/false);
+      if (ret_int && a0 == kIntRef) return SigShape::Int_IntRef;
+    }
+    if (ret_int && a0_int)       return SigShape::Int_Int;
     if (ret_int    && a0_bool)   return SigShape::Int_Bool;
     if (ret_void   && a0_int)    return SigShape::Void_Int;
     if (ret_void   && a0_bool)   return SigShape::Void_Bool;
@@ -230,6 +238,7 @@ void* LookupThunk(SigShape shape, std::size_t slot) {
   case SigShape::Double_Void:   return ThunkRow<double>()[slot];
   // 1-arg
   case SigShape::Int_Int:       return ThunkRow<int, int>()[slot];
+  case SigShape::Int_IntRef:    return ThunkRow<int, int&>()[slot];
   case SigShape::Int_Bool:      return ThunkRow<int, bool>()[slot];
   case SigShape::Void_Int:      return ThunkRow<void, int>()[slot];
   case SigShape::Void_Bool:     return ThunkRow<void, bool>()[slot];

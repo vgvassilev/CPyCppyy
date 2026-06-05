@@ -98,6 +98,12 @@ template <> inline bool MarshalFromPy<unsigned short>(
 template <> inline PyObject* MarshalToPy<int>(const int& v) noexcept {
   return PyLong_FromLong(v);
 }
+// Reference-arg specialization: cppyy treats Python refs as in-params,
+// so int& marshals by value (override modifies the Python copy; the
+// C++ ref is not written back).
+template <> inline PyObject* MarshalToPy<int&>(int& v) noexcept {
+  return PyLong_FromLong(v);
+}
 template <> inline bool MarshalFromPy<int>(PyObject* o, int& out) noexcept {
   long v = PyLong_AsLong(o);
   if (v == -1 && PyErr_Occurred()) return false;
