@@ -320,14 +320,20 @@ MarshalFromPyStrict<unsigned long long>(PyObject* o,
 template <> inline bool
 MarshalFromPyStrict<float>(PyObject* o, float& out) noexcept {
     double v = PyFloat_AsDouble(o);
-    if (v == -1.0 && PyErr_Occurred()) return false;
+    if (v == -1.0 && PyErr_Occurred()) {
+        if (o == CPyCppyy::gDefaultObject) { PyErr_Clear(); out = 0; return true; }
+        return false;
+    }
     out = static_cast<float>(v);
     return true;
 }
 template <> inline bool
 MarshalFromPyStrict<double>(PyObject* o, double& out) noexcept {
     double v = PyFloat_AsDouble(o);
-    if (v == -1.0 && PyErr_Occurred()) return false;
+    if (v == -1.0 && PyErr_Occurred()) {
+        if (o == CPyCppyy::gDefaultObject) { PyErr_Clear(); out = 0; return true; }
+        return false;
+    }
     out = v;
     return true;
 }
@@ -335,7 +341,10 @@ template <> inline bool
 MarshalFromPyStrict<PY_LONG_DOUBLE>(PyObject* o,
                                     PY_LONG_DOUBLE& out) noexcept {
     double v = PyFloat_AsDouble(o);
-    if (v == -1.0 && PyErr_Occurred()) return false;
+    if (v == -1.0 && PyErr_Occurred()) {
+        if (o == CPyCppyy::gDefaultObject) { PyErr_Clear(); out = 0; return true; }
+        return false;
+    }
     out = static_cast<PY_LONG_DOUBLE>(v);
     return true;
 }
