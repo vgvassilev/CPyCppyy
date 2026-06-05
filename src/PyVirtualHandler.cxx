@@ -145,6 +145,8 @@ enum class SigShape : int {
   Void_Void,       // void f()
   Bool_Void,       // bool f()
   Double_Void,     // double f()
+  Char_Void,       // char f()
+  String_Void,     // std::string f()
   // 1-arg
   Int_Int,         // int  f(int)
   Int_IntRef,      // int  f(int &)  -- ref arg, in-param semantics
@@ -185,6 +187,8 @@ SigShape ClassifySignature(Cpp::TCppFunction_t method) {
   static const Cpp::TCppType_t kVoid = Cpp::GetType("void");
   static const Cpp::TCppType_t kBool = Cpp::GetType("bool");
   static const Cpp::TCppType_t kDouble = Cpp::GetType("double");
+  static const Cpp::TCppType_t kChar = Cpp::GetType("char");
+  static const Cpp::TCppType_t kString = Cpp::GetType("std::string");
 
   Cpp::TCppType_t ret = Cpp::GetFunctionReturnType(method);
   Cpp::TCppIndex_t nargs = Cpp::GetFunctionNumArgs(method);
@@ -192,7 +196,12 @@ SigShape ClassifySignature(Cpp::TCppFunction_t method) {
   bool ret_void = (ret == kVoid);
   bool ret_double = (ret == kDouble);
   bool ret_bool = (ret == kBool);
+  bool ret_char = (ret == kChar);
+  bool ret_string = (kString && ret == kString);
   if (nargs == 0) {
+    // Check char before Int_Void: Cpp::IsIntegerType(char) is true.
+    if (ret_char)   return SigShape::Char_Void;
+    if (ret_string) return SigShape::String_Void;
     if (ret_int)    return SigShape::Int_Void;
     if (ret_void)   return SigShape::Void_Void;
     if (ret_bool)   return SigShape::Bool_Void;
@@ -236,6 +245,8 @@ void* LookupThunk(SigShape shape, std::size_t slot) {
   case SigShape::Void_Void:     return ThunkRow<void>()[slot];
   case SigShape::Bool_Void:     return ThunkRow<bool>()[slot];
   case SigShape::Double_Void:   return ThunkRow<double>()[slot];
+  case SigShape::Char_Void:     return ThunkRow<char>()[slot];
+  case SigShape::String_Void:   return ThunkRow<std::string>()[slot];
   // 1-arg
   case SigShape::Int_Int:       return ThunkRow<int, int>()[slot];
   case SigShape::Int_IntRef:    return ThunkRow<int, int&>()[slot];
