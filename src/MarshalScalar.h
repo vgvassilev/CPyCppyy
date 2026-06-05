@@ -213,7 +213,7 @@ template <> inline bool MarshalFromPy<PY_LONG_DOUBLE>(
 namespace detail {
 template <class T>
 inline bool ToIntStrict(PyObject* o, T& out, long lo, long hi) noexcept {
-    if (!(PyLong_Check(o) || PyInt_Check(o))) {
+    if (!(PyLong_Check(o) || PyLong_Check(o))) {
         if (o == CPyCppyy::gDefaultObject) { out = (T)0; return true; }
         PyErr_SetString(PyExc_TypeError,
                         "integer object expected for marshaling");
@@ -273,7 +273,7 @@ MarshalFromPyStrict<unsigned int>(PyObject* o,
 
 template <> inline bool
 MarshalFromPyStrict<long>(PyObject* o, long& out) noexcept {
-    if (!(PyLong_Check(o) || PyInt_Check(o))) {
+    if (!(PyLong_Check(o) || PyLong_Check(o))) {
         if (o == CPyCppyy::gDefaultObject) { out = 0; return true; }
         PyErr_SetString(PyExc_TypeError,
                         "integer object expected for marshaling");
@@ -287,7 +287,7 @@ MarshalFromPyStrict<long>(PyObject* o, long& out) noexcept {
 template <> inline bool
 MarshalFromPyStrict<unsigned long>(PyObject* o,
                                    unsigned long& out) noexcept {
-    if (!(PyLong_Check(o) || PyInt_Check(o))) {
+    if (!(PyLong_Check(o) || PyLong_Check(o))) {
         if (o == CPyCppyy::gDefaultObject) { out = 0; return true; }
         PyErr_SetString(PyExc_TypeError,
                         "integer object expected for marshaling");
@@ -301,7 +301,7 @@ MarshalFromPyStrict<unsigned long>(PyObject* o,
 
 template <> inline bool
 MarshalFromPyStrict<long long>(PyObject* o, long long& out) noexcept {
-    if (!(PyLong_Check(o) || PyInt_Check(o))) {
+    if (!(PyLong_Check(o) || PyLong_Check(o))) {
         if (o == CPyCppyy::gDefaultObject) { out = 0; return true; }
         PyErr_SetString(PyExc_TypeError,
                         "integer object expected for marshaling");
@@ -315,7 +315,7 @@ MarshalFromPyStrict<long long>(PyObject* o, long long& out) noexcept {
 template <> inline bool
 MarshalFromPyStrict<unsigned long long>(PyObject* o,
                                         unsigned long long& out) noexcept {
-    if (!(PyLong_Check(o) || PyInt_Check(o))) {
+    if (!(PyLong_Check(o) || PyLong_Check(o))) {
         if (o == CPyCppyy::gDefaultObject) { out = 0; return true; }
         PyErr_SetString(PyExc_TypeError,
                         "integer object expected for marshaling");

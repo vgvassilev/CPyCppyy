@@ -10,8 +10,11 @@
 #include "CustomPyTypes.h"
 #include "LowLevelViews.h"
 #include "MemoryRegulator.h"
+#include "CppyyDispatcher.h"
+#include "Dispatcher.h"
 #include "ProxyWrappers.h"
 #include "PyStrings.h"
+#include "PyVirtualHandler.h"
 #include "TemplateProxy.h"
 #include "TupleOfInstances.h"
 #include "Utility.h"
@@ -1063,6 +1066,16 @@ static PyMethodDef gCPyCppyyMethods[] = {
       METH_NOARGS, (char*) "Begin capturing stderr to a in memory buffer."},
     {(char*) "_end_capture_stderr", (PyCFunction)EndCaptureStderr,
       METH_NOARGS, (char*) "End capturing stderr and returns the captured buffer."},
+    {(char*) "_vtableproxy_hot_loop", (PyCFunction)CPyCppyy::VTableProxyHotLoop,
+      METH_VARARGS, (char*) "Demo: synthesized-vtable hot loop calling py_instance.frob(int)."},
+    {(char*) "_vtableproxy_stats", (PyCFunction)CPyCppyy::VTableProxyStats,
+      METH_NOARGS, (char*) "Counters: total, eligible, miss reasons, recent signatures."},
+    {(char*) "_vtableproxy_stats_reset", (PyCFunction)CPyCppyy::VTableProxyStatsReset,
+      METH_NOARGS, (char*) "Reset the VTableProxy detector counters."},
+    {(char*) "_dispatcher_summary", (PyCFunction)CPyCppyy::DispatcherSummary,
+      METH_NOARGS, (char*) "List of dicts: every registered dispatcher (string-template + vtable-proxy)."},
+    {(char*) "_dispatcher_summary_reset", (PyCFunction)CPyCppyy::DispatcherSummaryReset,
+      METH_NOARGS, (char*) "Drop the registered dispatchers (frees them)."},
     {nullptr, nullptr, 0, nullptr}
 };
 
