@@ -142,13 +142,20 @@ enum class SigShape : int {
   Unsupported = -1,
   // 0-arg
   Int_Void,        // int  f()
+  Void_Void,       // void f()
+  Bool_Void,       // bool f()
+  Double_Void,     // double f()
   // 1-arg
   Int_Int,         // int  f(int)
+  Int_Bool,        // int  f(bool)
   Void_Int,        // void f(int)
+  Void_Bool,       // void f(bool)
   Double_Double,   // double f(double)
   Bool_Int,        // bool f(int)
+  Bool_Bool,       // bool f(bool)
   // 2-arg
   Int_IntInt,      // int  f(int, int)
+  Bool_IntInt,     // bool f(int, int)
 };
 
 constexpr std::size_t kMaxSlots = 8;
@@ -186,20 +193,28 @@ SigShape ClassifySignature(Cpp::TCppFunction_t method) {
   bool ret_bool = (ret == kBool);
   if (nargs == 0) {
     if (ret_int)    return SigShape::Int_Void;
+    if (ret_void)   return SigShape::Void_Void;
+    if (ret_bool)   return SigShape::Bool_Void;
+    if (ret_double) return SigShape::Double_Void;
   } else if (nargs == 1) {
     Cpp::TCppType_t a0 = Cpp::GetFunctionArgType(method, 0);
     bool a0_int = Cpp::IsIntegerType(a0);
     bool a0_double = (a0 == kDouble);
+    bool a0_bool = (a0 == kBool);
     if (ret_int    && a0_int)    return SigShape::Int_Int;
+    if (ret_int    && a0_bool)   return SigShape::Int_Bool;
     if (ret_void   && a0_int)    return SigShape::Void_Int;
+    if (ret_void   && a0_bool)   return SigShape::Void_Bool;
     if (ret_double && a0_double) return SigShape::Double_Double;
     if (ret_bool   && a0_int)    return SigShape::Bool_Int;
+    if (ret_bool   && a0_bool)   return SigShape::Bool_Bool;
   } else if (nargs == 2) {
     Cpp::TCppType_t a0 = Cpp::GetFunctionArgType(method, 0);
     Cpp::TCppType_t a1 = Cpp::GetFunctionArgType(method, 1);
     bool a0_int = Cpp::IsIntegerType(a0);
     bool a1_int = Cpp::IsIntegerType(a1);
     if (ret_int  && a0_int && a1_int) return SigShape::Int_IntInt;
+    if (ret_bool && a0_int && a1_int) return SigShape::Bool_IntInt;
   }
   return SigShape::Unsupported;
 }
@@ -210,13 +225,20 @@ void* LookupThunk(SigShape shape, std::size_t slot) {
   switch (shape) {
   // 0-arg
   case SigShape::Int_Void:      return ThunkRow<int>()[slot];
+  case SigShape::Void_Void:     return ThunkRow<void>()[slot];
+  case SigShape::Bool_Void:     return ThunkRow<bool>()[slot];
+  case SigShape::Double_Void:   return ThunkRow<double>()[slot];
   // 1-arg
   case SigShape::Int_Int:       return ThunkRow<int, int>()[slot];
+  case SigShape::Int_Bool:      return ThunkRow<int, bool>()[slot];
   case SigShape::Void_Int:      return ThunkRow<void, int>()[slot];
+  case SigShape::Void_Bool:     return ThunkRow<void, bool>()[slot];
   case SigShape::Double_Double: return ThunkRow<double, double>()[slot];
   case SigShape::Bool_Int:      return ThunkRow<bool, int>()[slot];
+  case SigShape::Bool_Bool:     return ThunkRow<bool, bool>()[slot];
   // 2-arg
   case SigShape::Int_IntInt:    return ThunkRow<int, int, int>()[slot];
+  case SigShape::Bool_IntInt:   return ThunkRow<bool, int, int>()[slot];
   default:
     return nullptr;
   }
