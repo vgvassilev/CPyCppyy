@@ -1,5 +1,11 @@
 // Bindings
 #include "CPyCppyy.h"
+#include "CppInterOp/CppInterOp.h"
+#include "CppyyDispatcher.h"
+#include "MemoryRegulator.h"
+#include "PyVirtualHandler.h"
+
+#include <cstdlib>
 #include "CPPConstructor.h"
 #include "CPPInstance.h"
 #include "Executors.h"
@@ -93,6 +99,16 @@ PyObject* CPyCppyy::CPPConstructor::Call(CPPInstance*& self,
     if (!ctxt->fPyContext)
         ctxt->fPyContext = (PyObject*)cargs.fSelf;    // no Py_INCREF as no ownership
 
+// Hybrid VTableProxy fast path: when fDispatcher is attached, the Cling-
+// emitted dispatcher class is still in play (for type identity); we
+// overlay its vtable AFTER it's constructed so per-call cost drops to
+// the matching thunk.
+    CppyyDispatcher* vtp_d = nullptr;
+    if (auto* d = ((CPPScope*)Py_TYPE(self))->fDispatcher) {
+        if (d->GetKind() == CppyyDispatcher::kVTableProxy)
+            vtp_d = d;
+    }
+
 // perform the call, nullptr 'this' makes the other side allocate the memory
     Cppyy::TCppScope_t disp = self->ObjectIsA(false /* check_smart */);
     intptr_t address = 0;
@@ -132,6 +148,21 @@ PyObject* CPyCppyy::CPPConstructor::Call(CPPInstance*& self,
             PyObject* res = PyObject_CallMethodObjArgs(
                 dispproxy, PyStrings::gDispInit, pyobj, (PyObject*)self, nullptr);
             Py_XDECREF(res);
+
+        // Hybrid VTableProxy: overlay the Cling-dispatcher's vtable slot
+        // with the matching thunk. The overlay uses `disp` (the dispatcher
+        // class scope) because that's the vtable layout the instance's
+        // vptr points at; the dispatcher's slot index for the overridden
+        // virtual matches the Base's by construction.
+            if (vtp_d) {
+                auto* vtp = static_cast<VTableProxyDispatcher*>(vtp_d);
+                const auto& names = vtp->MethodNames();
+                if (!names.empty()) {
+                    CPyCppyy::InstallVTableProxyOverlay(
+                        (void*)address, (void*)disp,
+                        names[0].c_str(), (PyObject*)self);
+                }
+            }
         }
         Py_DECREF(dispproxy);
 

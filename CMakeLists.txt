@@ -22,11 +22,12 @@ if (NOT Python_Development_FOUND)
    message(FATAL_ERROR "Python development package not found and python component required")
 endif()
 
-include_directories("${PROJECT_SOURCE_DIR}/include" "${Python_INCLUDE_DIRS}")
+include_directories("${PROJECT_SOURCE_DIR}/include" "${Python_INCLUDE_DIRS}" "${PROJECT_SOURCE_DIR}/../include" "${PROJECT_SOURCE_DIR}/../build/include")
 
 file (GLOB cppyy_src src/*.cxx)
 
 add_library(cppyy SHARED ${cppyy_src})
+target_link_libraries(cppyy PUBLIC "${PROJECT_SOURCE_DIR}/../build/lib/libclangCppInterOp.so")
 
 if(APPLE)
   set_target_properties(cppyy PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
