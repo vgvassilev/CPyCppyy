@@ -34,6 +34,11 @@ namespace CPyCppyy {
 typedef std::map<Cppyy::TCppObject_t, PyObject*> CppToPyMap_t;
 namespace Utility { struct PyOperators; }
 
+// Non-owning back-pointer; lifetime held by DispatcherRegistry. When
+// set and of kind kVTableProxy, CPPConstructor installs a vtable
+// overlay post-construction.
+class CppyyDispatcher;
+
 class CPPScope {
 public:
     enum EFlags {
@@ -60,6 +65,7 @@ public:
     } fImp;
     Utility::PyOperators*       fOperators;
     char*             fModuleName;
+    CppyyDispatcher*  fDispatcher;   // non-owning; null = no fast-path
 
 private:
     CPPScope() = delete;

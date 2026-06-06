@@ -37,9 +37,12 @@ typedef long double PY_LONG_DOUBLE;
 #endif
 
 // Use CppInterOp's definition of CppImpl::TemplateArgInfo rather than a
-// local copy that had to be kept in lockstep across releases.
+// local copy that had to be kept in lockstep across releases. No
+// `namespace Cpp = CppImpl` alias here: that would collide with the
+// `Cpp = CppInternal::Dispatch` alias Dispatch.h installs for the
+// RTLD_LOCAL dispatch path. Call sites in this binding spell
+// `CppImpl::TemplateArgInfo` explicitly.
 #include "CppInterOp/CppInterOpTypes.h"
-namespace Cpp = CppImpl;
 
 namespace Cppyy {
 
@@ -344,7 +347,7 @@ namespace Cppyy {
     TCppType_t  GetType(const std::string& name, bool enable_slow_lookup = false);
     CPPYY_IMPORT
     bool AppendTypesSlow(const std::string &name,
-                         std::vector<Cpp::TemplateArgInfo>& types,
+                         std::vector<CppImpl::TemplateArgInfo>& types,
                          TCppScope_t parent = nullptr);
     CPPYY_IMPORT
     TCppType_t  GetComplexType(const std::string& element_type);
@@ -382,7 +385,7 @@ namespace Cppyy {
     TCppIndex_t GetEnumDataValue(TCppScope_t scope);
     CPPYY_IMPORT
     TCppScope_t InstantiateTemplate(
-            TCppScope_t tmpl, Cpp::TemplateArgInfo* args, size_t args_size);
+            TCppScope_t tmpl, CppImpl::TemplateArgInfo* args, size_t args_size);
 
     CPPYY_IMPORT
     TCppScope_t DumpScope(TCppScope_t scope);

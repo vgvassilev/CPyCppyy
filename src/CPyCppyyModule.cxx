@@ -13,6 +13,7 @@
 #include "CppyyDispatcher.h"
 #include "PerfStats.h"
 #include "ProxyWrappers.h"
+#include "PyVirtualHandler.h"
 #include "PyStrings.h"
 #include "TemplateProxy.h"
 #include "TupleOfInstances.h"
@@ -472,14 +473,14 @@ static PyObject* MakeCppTemplateClass(PyObject* /* self */, PyObject* args)
     void * tmpl = PyLong_AsVoidPtr(cppscope);
 
 // build "< type, type, ... >" part of class name (modifies pyname)
-    std::vector<Cpp::TemplateArgInfo> types =
+    std::vector<CppImpl::TemplateArgInfo> types =
         Utility::GetTemplateArgsTypes(cppscope, args, nullptr, Utility::kNone, 1);
     if (PyErr_Occurred())
       return nullptr;
 
     Cppyy::TCppScope_t scope = 
         Cppyy::InstantiateTemplate(tmpl, types.data(), types.size());
-    for (Cpp::TemplateArgInfo i: types) {
+    for (CppImpl::TemplateArgInfo i: types) {
         if (i.m_IntegralValue)
             std::free((void*)i.m_IntegralValue);
     }

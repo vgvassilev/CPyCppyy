@@ -2,10 +2,12 @@
 #include "CPyCppyy.h"
 #include "CPPConstructor.h"
 #include "CPPInstance.h"
+#include "CppyyDispatcher.h"
 #include "Executors.h"
 #include "MemoryRegulator.h"
 #include "ProxyWrappers.h"
 #include "PyStrings.h"
+#include "PyVirtualHandler.h"
 
 // Standard
 #include <memory>
@@ -93,6 +95,14 @@ PyObject* CPyCppyy::CPPConstructor::Call(CPPInstance*& self,
     if (!ctxt->fPyContext)
         ctxt->fPyContext = (PyObject*)cargs.fSelf;    // no Py_INCREF as no ownership
 
+// Fast-path flag: the Cling-emitted dispatcher class still gets built
+// (needed for type identity); the overlay goes on top, post-construction.
+    CppyyDispatcher* vtp_d = nullptr;
+    if (auto* d = ((CPPScope*)Py_TYPE(self))->fDispatcher) {
+        if (d->GetKind() == CppyyDispatcher::kVTableProxy)
+            vtp_d = d;
+    }
+
 // perform the call, nullptr 'this' makes the other side allocate the memory
     Cppyy::TCppScope_t disp = self->ObjectIsA(false /* check_smart */);
     intptr_t address = 0;
@@ -132,6 +142,19 @@ PyObject* CPyCppyy::CPPConstructor::Call(CPPInstance*& self,
             PyObject* res = PyObject_CallMethodObjArgs(
                 dispproxy, PyStrings::gDispInit, pyobj, (PyObject*)self, nullptr);
             Py_XDECREF(res);
+
+        // Overlay onto `disp`'s vtable -- that's the layout this
+        // instance's vptr points at; slot indices for inherited
+        // virtuals match the Base's by construction.
+            if (vtp_d) {
+                auto* vtp = static_cast<VTableProxyDispatcher*>(vtp_d);
+                const auto& names = vtp->MethodNames();
+                if (!names.empty()) {
+                    CPyCppyy::InstallVTableProxyOverlay(
+                        (void*)address, (void*)disp,
+                        names[0].c_str(), (PyObject*)self);
+                }
+            }
         }
         Py_DECREF(dispproxy);
 
