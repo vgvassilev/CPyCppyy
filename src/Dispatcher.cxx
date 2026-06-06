@@ -2,12 +2,14 @@
 #include "CPyCppyy.h"
 #include "Dispatcher.h"
 #include "CPPScope.h"
+#include "CppyyDispatcher.h"
 #include "PyStrings.h"
 #include "ProxyWrappers.h"
 #include "TypeManip.h"
 #include "Utility.h"
 
 // Standard
+#include <chrono>
 #include <set>
 #include <sstream>
 
@@ -170,6 +172,8 @@ bool CPyCppyy::InsertDispatcher(CPPScope* klass, PyObject* bases, PyObject* dct,
 {
 // Scan all methods in dct and where it overloads base methods in klass, create
 // dispatchers on the C++ side. Then interject the dispatcher class.
+
+    auto t_insert_start = std::chrono::steady_clock::now();
 
     if (!PyTuple_Check(bases) || !PyTuple_GET_SIZE(bases) || !dct || !PyDict_Check(dct)) {
         err << "internal error: expected tuple of bases and proper dictionary";
@@ -503,6 +507,31 @@ bool CPyCppyy::InsertDispatcher(CPPScope* klass, PyObject* bases, PyObject* dct,
     }
 
     Py_XDECREF(disp_proxy);
+
+    // Inventory: record the dispatcher we just built so cppyy._dispatcher_summary()
+    // can see it. Cost is one push under a mutex; class creation isn't hot.
+    {
+        auto t_end = std::chrono::steady_clock::now();
+        double ms = std::chrono::duration<double, std::milli>(
+            t_end - t_insert_start).count();
+        std::string sig = base_infos.empty() ? std::string("?")
+                                              : base_infos.front().bname_scoped;
+        sig += "::{";
+        bool first = true;
+        Py_ssize_t pos = 0;
+        PyObject *k_obj, *v_obj;
+        while (PyDict_Next(dct, &pos, &k_obj, &v_obj)) {
+            if (!PyCallable_Check(v_obj)) continue;
+            const char* nm = PyUnicode_AsUTF8(k_obj);
+            if (!nm) continue;
+            if (!first) sig += ",";
+            sig += nm;
+            first = false;
+        }
+        sig += "}";
+        auto* d = new StringTemplateDispatcher((void*)disp, std::move(sig), ms);
+        DispatcherRegistry::Instance().Register(derivedName, d);
+    }
 
     return true;
 }

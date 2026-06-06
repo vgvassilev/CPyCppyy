@@ -10,6 +10,8 @@
 #include "CustomPyTypes.h"
 #include "LowLevelViews.h"
 #include "MemoryRegulator.h"
+#include "CppyyDispatcher.h"
+#include "PerfStats.h"
 #include "ProxyWrappers.h"
 #include "PyStrings.h"
 #include "TemplateProxy.h"
@@ -1063,6 +1065,16 @@ static PyMethodDef gCPyCppyyMethods[] = {
       METH_NOARGS, (char*) "Begin capturing stderr to a in memory buffer."},
     {(char*) "_end_capture_stderr", (PyCFunction)EndCaptureStderr,
       METH_NOARGS, (char*) "End capturing stderr and returns the captured buffer."},
+    {(char*) "perf_stats", (PyCFunction)CPyCppyy::PerfStats,
+      METH_VARARGS, (char*) "perf_stats([section]): observability counters as a dict. "
+                            "With no argument returns {section: {counters...}}; with a section "
+                            "name returns just that section."},
+    {(char*) "perf_stats_reset", (PyCFunction)CPyCppyy::PerfStatsReset,
+      METH_VARARGS, (char*) "perf_stats_reset([section]): reset all sections, or one named section."},
+    {(char*) "_dispatcher_summary", (PyCFunction)CPyCppyy::DispatcherSummary,
+      METH_NOARGS, (char*) "List of dicts: every recorded class -> dispatcher decision."},
+    {(char*) "_dispatcher_summary_reset", (PyCFunction)CPyCppyy::DispatcherSummaryReset,
+      METH_NOARGS, (char*) "Drop the registered dispatchers (frees them)."},
     {nullptr, nullptr, 0, nullptr}
 };
 
